@@ -1,0 +1,15 @@
+{
+  "name": "velocity-rush",
+  "version": "1.0.0",
+  "description": "Velocity Rush - neon endless lane racer for CrazyGames",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "esbuild src/main.js --bundle --minify --outfile=dist/bundle.js && node scripts/pack.mjs",
+    "dev": "esbuild src/main.js --bundle --outfile=dist/bundle.js --watch --servedir=dist"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "playwright": "^1.62.1"
+  }
+}
