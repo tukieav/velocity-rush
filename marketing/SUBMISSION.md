@@ -22,8 +22,13 @@ the further you go. One crash ends the run — how far can you push it?
 FEATURES
 - Pure speed: the highway keeps accelerating the longer you survive
 - NITRO pickups: 1.6x boost with flame trails and screen shake
-- Near-miss bonus: shave past cars for extra points and style
+- Near-miss CHAIN: consecutive close calls within 3s build a rising bonus multiplier
 - Coin combos: chain pickups for multiplied coins
+- GARAGE: 8 unlockable neon cars with unique handling, nitro duration and coin multiplier stats
+- Permanent upgrades: nitro time +20%/level, coin magnet, crash shield (1 save per run)
+- 14 missions (total distance, near-miss counts, chain goals…) with coin rewards
+- Daily login streak bonus (up to 7x)
+- Persistent coin wallet & progress saved across devices (SDK data module)
 - Neon night visuals: glowing cars, light streaks, city vibes — all procedural
 - Instant restarts, "one more try" loop under 30 seconds
 - Mouse/keyboard AND touch: swipe or tap to change lanes
@@ -45,9 +50,10 @@ Left/Right arrows or A/D — change lane. Mobile: swipe left/right or tap screen
 - loadingStart/loadingStop around boot
 - Midgame ad on "Play Again" after game over
 - Rewarded ad "CONTINUE" (revive at crash spot with 2s invulnerability, once per run)
-- happytime() every 1000 m milestone
+- Rewarded ad "DOUBLE" (x2 coins earned in the run, on game-over screen)
+- happytime() on 1000 m milestones, mission completions, car/upgrade purchases (client-side throttled)
 - game.settings.muteAudio respected + settings change listener
-- Best score via data module with localStorage fallback
+- Best score AND full meta-progression (wallet, cars, upgrades, missions, streak) via data module with localStorage fallback
 - No external requests, all assets procedural (Canvas 2D + WebAudio), bundle ~17 KB
 - Touch + mouse + keyboard; portrait-friendly, works on low-end devices
 - Live demo: https://tukieav.github.io/velocity-rush/
