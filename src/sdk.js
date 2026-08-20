@@ -38,7 +38,12 @@ export function loadingStop() {
   try { if (sdk) sdk.game.loadingStop(); } catch (e) {}
 }
 
+let lastHappy = 0;
 export function happytime() {
+  // SDK throttles happytime to 1/s and logs a console error if exceeded — pre-throttle here.
+  const now = Date.now();
+  if (now - lastHappy < 1600) return;
+  lastHappy = now;
   try { if (sdk) sdk.game.happytime(); } catch (e) {}
 }
 
@@ -62,6 +67,15 @@ export function getMuteSetting() {
 
 export function onSettingsChange(fn) {
   try { if (sdk) sdk.game.addSettingsChangeListener(fn); } catch (e) {}
+}
+
+// Generic SDK data access (cross-device cloud save); callers handle localStorage fallback.
+export function dataGet(key) {
+  try { if (sdk) return sdk.data.getItem(key); } catch (e) {}
+  return null;
+}
+export function dataSet(key, value) {
+  try { if (sdk) sdk.data.setItem(key, value); } catch (e) {}
 }
 
 // Persistent best score: SDK data module (cross-device) with localStorage fallback

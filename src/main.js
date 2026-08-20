@@ -1,6 +1,7 @@
 // Velocity Rush — neon endless lane racer for CrazyGames
 import { initSDK, gameplayStart, gameplayStop, loadingStart, loadingStop, happytime, requestAd, getMuteSetting, onSettingsChange, loadBest, saveBest } from './sdk.js';
 import * as audio from './audio.js';
+import { CARS, UPGRADES, M, loadMeta, saveMeta, getCar, nitroDuration, magnetRadius, hasShield, buyCar, selectCar, buyUpgrade, activeMissions, commitRun, addWallet, claimDaily } from './meta.js';
 
 const W = 540, H = 960;
 const LANES = 4;
@@ -24,9 +25,13 @@ function resize() {
 window.addEventListener('resize', resize); resize();
 
 // ---------- state ----------
-let state = 'boot'; // boot -> menu -> playing -> gameover
+let state = 'boot'; // boot -> menu -> playing -> gameover | garage
 let best = 0;
 let debug = new URLSearchParams(location.search).has('debug');
+let dailyBonus = 0;      // shown on menu once per day
+let firstRun = true;     // contextual hint on first run
+let garageIdx = 0;       // car carousel index
+let runResult = null;    // { earned, missions, doubled }
 
 const G = {
   lane: 1,           // target lane
@@ -36,9 +41,11 @@ const G = {
   speed: 0,          // px/s world scroll
   baseSpeed: 0,
   nitroT: 0,         // nitro time left
+  nitroMax: 3,
   nitroTrail: [],
   invulnT: 0,
   usedContinue: false,
+  shieldReady: false,
   obstacles: [],     // {lane, y, h, color, truck, passed}
   pickups: [],       // {lane, y, kind:'coin'|'nitro', taken}
   particles: [],
@@ -46,6 +53,13 @@ const G = {
   shake: 0,
   coinCombo: 0,
   coinComboT: 0,
+  // near-miss chain (short-loop reward)
+  nmChain: 0,
+  nmChainT: 0,
+  // per-run stats for meta
+  runNearMisses: 0,
+  runNitros: 0,
+  runBestChain: 0,
   time: 0,
   spawnT: 0,
   pickupT: 0,
@@ -84,11 +98,16 @@ function resetRun() {
   G.dist = 0; G.coins = 0;
   G.baseSpeed = 340; G.speed = G.baseSpeed;
   G.nitroT = 0; G.invulnT = 0; G.usedContinue = false;
+  G.nitroMax = nitroDuration();
+  G.shieldReady = hasShield();
   G.obstacles = []; G.pickups = []; G.particles = []; G.floaters = [];
   G.nitroTrail = [];
   G.shake = 0; G.coinCombo = 0; G.coinComboT = 0;
+  G.nmChain = 0; G.nmChainT = 0;
+  G.runNearMisses = 0; G.runNitros = 0; G.runBestChain = 0;
   G.time = 0; G.spawnT = 0.8; G.pickupT = 2.2; G.nextHappy = 1000;
   G.crashDone = false;
+  runResult = null;
 }
 
 function startGame() {
@@ -101,6 +120,16 @@ function startGame() {
 
 function doCrash() {
   if (G.crashDone) return;
+  // permanent shield upgrade: survive one crash per run
+  if (G.shieldReady) {
+    G.shieldReady = false;
+    G.invulnT = 2;
+    G.shake = 14;
+    addFloater(G.playerX, PLAYER_Y - 80, 'SHIELD SAVED YOU!', '#76ff03');
+    burst(G.playerX, PLAYER_Y, '#76ff03', 40, 360);
+    audio.nitroSound();
+    return;
+  }
   G.crashDone = true;
   audio.stopEngine();
   audio.crashSound();
@@ -111,6 +140,13 @@ function doCrash() {
   gameplayStop();
   const score = Math.floor(G.dist);
   if (score > best) { best = score; saveBest(best); }
+  // commit run to meta-progression (wallet, stats, missions)
+  runResult = commitRun({
+    dist: G.dist, coins: G.coins,
+    nearMisses: G.runNearMisses, nitros: G.runNitros, bestChain: G.runBestChain,
+  });
+  runResult.doubled = false;
+  if (runResult.missions.length) happytime();
   setTimeout(() => audio.gameOverSound(), 200);
 }
 
@@ -130,6 +166,22 @@ async function continueRun() {
     state = 'playing';
     audio.startEngine();
     gameplayStart();
+  }
+}
+
+// Rewarded: double the coins earned this run
+async function doubleCoins() {
+  if (!runResult || runResult.doubled || state !== 'gameover') return;
+  const prevMute = mutedBySettings;
+  const ok = await requestAd('rewarded', {
+    onStart: () => { audio.setMuted(true); },
+    onFinish: () => { audio.setMuted(prevMute); },
+  });
+  if (ok) {
+    addWallet(runResult.earned);
+    runResult.doubled = true;
+    audio.coinSound(8);
+    happytime();
   }
 }
 
@@ -210,9 +262,9 @@ function update(dt) {
   G.dist += G.speed * dt * 0.05;
   if (G.dist >= G.nextHappy) { happytime(); G.nextHappy += 1000; addFloater(W / 2, H * 0.3, Math.floor(G.dist / 1000) + ' KM!', '#00e5ff'); }
 
-  // player lerp to lane
+  // player lerp to lane (handling stat: higher = snappier)
   const tx = laneX(G.lane);
-  G.playerX += (tx - G.playerX) * Math.min(1, dt * 10);
+  G.playerX += (tx - G.playerX) * Math.min(1, dt * getCar().handling);
 
   // road scroll
   G.roadScroll = (G.roadScroll + G.speed * dt) % 80;
@@ -220,17 +272,20 @@ function update(dt) {
   // props
   for (const p of props) { p.y += G.speed * dt * 0.9; if (p.y > H + 60) { p.y = -60; p.lamp = Math.random() < 0.35; } }
 
-  // spawn
+  // spawn — dynamic difficulty: traffic density ramps slower in the 1st minute
   G.spawnT -= dt;
   if (G.spawnT <= 0) {
     spawnObstacle();
-    G.spawnT = Math.max(0.42, 1.15 - G.time * 0.012);
+    const effT = G.time < 60 ? G.time * 0.55 : 33 + (G.time - 60);
+    G.spawnT = Math.max(0.42, 1.15 - effT * 0.012);
   }
   G.pickupT -= dt;
   if (G.pickupT <= 0) { spawnPickup(); G.pickupT = rnd(1.8, 3.2); }
 
   // coin combo timer
   if (G.coinComboT > 0) { G.coinComboT -= dt; if (G.coinComboT <= 0) G.coinCombo = 0; }
+  // near-miss chain window
+  if (G.nmChainT > 0) { G.nmChainT -= dt; if (G.nmChainT <= 0) G.nmChain = 0; }
 
   // obstacles
   for (const o of G.obstacles) {
@@ -241,10 +296,19 @@ function update(dt) {
       o.passed = true;
       const gap = Math.abs(ox - G.playerX) - (CAR_W); // gap between car edges
       if (gap < 15 && gap > -CAR_W * 0.5) {
-        G.dist += 15;
-        addFloater(G.playerX, PLAYER_Y - 70, 'CLOSE! +15', '#ffe600');
+        // chain: consecutive near misses within 3s build a rising multiplier
+        G.nmChain++;
+        G.nmChainT = 3;
+        G.runNearMisses++;
+        if (G.nmChain > G.runBestChain) G.runBestChain = G.nmChain;
+        const bonus = 15 * G.nmChain;
+        G.dist += bonus;
+        addFloater(G.playerX, PLAYER_Y - 70,
+          G.nmChain > 1 ? 'CHAIN x' + G.nmChain + '! +' + bonus : 'CLOSE! +' + bonus,
+          G.nmChain > 1 ? '#ff2d78' : '#ffe600');
         audio.nearMissSound();
-        G.shake = Math.max(G.shake, 4);
+        G.shake = Math.max(G.shake, 4 + G.nmChain);
+        if (G.nmChain >= 3) happytime();
       }
     }
     // collision AABB
@@ -252,28 +316,42 @@ function update(dt) {
         Math.abs(ox - G.playerX) < CAR_W * 0.88 &&
         PLAYER_Y - CAR_H / 2 < o.y + o.h && PLAYER_Y + CAR_H / 2 > o.y) {
       doCrash();
-      return;
+      if (state !== 'playing') return;
     }
   }
   G.obstacles = G.obstacles.filter(o => o.y < H + 250);
 
-  // pickups
+  // pickups (coin magnet upgrade pulls coins toward the player)
+  const magR = magnetRadius();
   for (const p of G.pickups) {
     p.y += G.speed * dt;
-    if (!p.taken && Math.abs(laneX(p.lane) - G.playerX) < LANE_W * 0.5 && Math.abs(p.y - PLAYER_Y) < 46) {
+    if (magR > 0 && p.kind === 'coin' && !p.taken) {
+      const px = p.mx != null ? p.mx : laneX(p.lane);
+      const dx = G.playerX - px, dy = PLAYER_Y - p.y;
+      const d = Math.hypot(dx, dy);
+      if (d < magR && d > 1) {
+        const pull = 520 * dt;
+        p.mx = px + (dx / d) * pull;
+        p.y += (dy / d) * pull;
+      }
+    }
+    const px = p.mx != null ? p.mx : laneX(p.lane);
+    if (!p.taken && Math.abs(px - G.playerX) < LANE_W * 0.5 && Math.abs(p.y - PLAYER_Y) < 46) {
       p.taken = true;
       if (p.kind === 'coin') {
         G.coinCombo++; G.coinComboT = 1.4;
         const bonus = G.coinCombo >= 5 ? 2 : 1;
         G.coins += bonus;
-        addFloater(laneX(p.lane), p.y - 20, '+' + bonus + (G.coinCombo >= 5 ? ' x' + G.coinCombo : ''), '#ffd700');
+        addFloater(px, p.y - 20, '+' + bonus + (G.coinCombo >= 5 ? ' x' + G.coinCombo : ''), '#ffd700');
         audio.coinSound(G.coinCombo);
-        burst(laneX(p.lane), p.y, '#ffd700', 6, 160);
+        burst(px, p.y, '#ffd700', 6, 160);
       } else {
-        G.nitroT = 3;
-        addFloater(laneX(p.lane), p.y - 20, 'NITRO!', '#00e5ff');
+        G.nitroMax = nitroDuration();
+        G.nitroT = G.nitroMax;
+        G.runNitros++;
+        addFloater(px, p.y - 20, 'NITRO!', '#00e5ff');
         audio.nitroSound();
-        burst(laneX(p.lane), p.y, '#00e5ff', 18, 280);
+        burst(px, p.y, '#00e5ff', 18, 280);
         G.shake = Math.max(G.shake, 8);
       }
     }
@@ -282,7 +360,7 @@ function update(dt) {
 }
 
 // ---------- drawing ----------
-function drawCarShape(x, y, w, h, color, glow, headlights) {
+function drawCarShape(x, y, w, h, color, glow, headlights, shape = -1) {
   ctx.save();
   ctx.translate(x, y);
   if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 22; }
@@ -301,9 +379,32 @@ function drawCarShape(x, y, w, h, color, glow, headlights) {
   // cockpit
   ctx.fillStyle = 'rgba(10,14,30,0.85)';
   ctx.fillRect(-w * 0.3, -h * 0.22, w * 0.6, h * 0.34);
-  // stripe
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillRect(-w * 0.06, -h / 2 + 4, w * 0.12, h - 8);
+  // procedural shape variants (garage cars)
+  if (shape >= 0) {
+    if (shape % 2 === 1) { // rear spoiler
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.fillRect(-w * 0.46, h / 2 - 16, w * 0.92, 5);
+    }
+    if (shape >= 4) { // front fins
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(-w / 2, -h * 0.2); ctx.lineTo(-w / 2 - 7, -h * 0.05); ctx.lineTo(-w / 2, h * 0.1); ctx.closePath(); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(w / 2, -h * 0.2); ctx.lineTo(w / 2 + 7, -h * 0.05); ctx.lineTo(w / 2, h * 0.1); ctx.closePath(); ctx.fill();
+    }
+    if (shape % 3 === 2) { // double stripe
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(-w * 0.18, -h / 2 + 4, w * 0.09, h - 8);
+      ctx.fillRect(w * 0.09, -h / 2 + 4, w * 0.09, h - 8);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(-w * 0.06, -h / 2 + 4, w * 0.12, h - 8);
+    }
+  } else {
+    // stripe
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillRect(-w * 0.06, -h / 2 + 4, w * 0.12, h - 8);
+  }
   if (headlights) {
     ctx.fillStyle = '#fffbe0';
     ctx.fillRect(-w * 0.36, -h / 2 + 2, w * 0.16, 6);
@@ -392,7 +493,7 @@ function drawGame() {
 
   // pickups
   for (const p of G.pickups) {
-    const x = laneX(p.lane);
+    const x = p.mx != null ? p.mx : laneX(p.lane);
     if (p.kind === 'coin') {
       ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 14;
       ctx.fillStyle = '#ffd700';
@@ -427,8 +528,15 @@ function drawGame() {
 
   // player (blink while invulnerable)
   if (state === 'playing' || state === 'menu') {
+    const car = getCar();
     if (!(G.invulnT > 0 && Math.floor(G.time * 10) % 2 === 0)) {
-      drawCarShape(G.playerX, PLAYER_Y, CAR_W, CAR_H, '#00ffc8', true, true);
+      drawCarShape(G.playerX, PLAYER_Y, CAR_W, CAR_H, car.color, true, true, car.shape);
+      // shield aura
+      if (G.shieldReady && state === 'playing') {
+        ctx.strokeStyle = 'rgba(118,255,3,0.5)';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(G.playerX, PLAYER_Y, CAR_H * 0.72, 0, Math.PI * 2); ctx.stroke();
+      }
       // headlight beams
       const hb = ctx.createLinearGradient(0, PLAYER_Y - CAR_H / 2, 0, PLAYER_Y - CAR_H / 2 - 180);
       hb.addColorStop(0, 'rgba(255,250,200,0.22)'); hb.addColorStop(1, 'rgba(255,250,200,0)');
@@ -461,6 +569,16 @@ function drawGame() {
   }
   ctx.globalAlpha = 1;
 
+  // contextual first-run hint (teach by playing, no tutorial screen)
+  if (state === 'playing' && firstRun && G.time < 6) {
+    const a = G.time < 5 ? 1 : 6 - G.time;
+    ctx.globalAlpha = a * (0.6 + 0.4 * Math.sin(G.time * 6));
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('\u2190  TAP / SWIPE / ARROWS  \u2192', W / 2, H * 0.58);
+    ctx.globalAlpha = 1;
+  }
+
   ctx.restore();
 }
 
@@ -482,9 +600,19 @@ function drawHUD() {
   ctx.fillText('BEST ' + best + ' m', W / 2 + 40, 56);
   if (G.nitroT > 0) {
     ctx.fillStyle = '#00e5ff';
-    ctx.fillRect(W / 2 - 80, 70, 160 * (G.nitroT / 3), 8);
+    ctx.fillRect(W / 2 - 80, 70, 160 * (G.nitroT / G.nitroMax), 8);
     ctx.strokeStyle = 'rgba(0,229,255,0.5)';
     ctx.strokeRect(W / 2 - 80, 70, 160, 8);
+  }
+  // near-miss chain indicator
+  if (G.nmChain > 1 && G.nmChainT > 0 && state === 'playing') {
+    ctx.fillStyle = '#ff2d78';
+    ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+    ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 10;
+    ctx.fillText('CHAIN x' + G.nmChain, W / 2, 105);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,45,120,0.7)';
+    ctx.fillRect(W / 2 - 60, 112, 120 * (G.nmChainT / 3), 5);
   }
 }
 
@@ -508,6 +636,17 @@ function drawButton(id, x, y, w, h, label, color, sub) {
   }
   ctx.restore();
 }
+function drawSmallButton(id, x, y, w, h, label, color, fs) {
+  buttons.push({ id, x, y, w, h });
+  ctx.save();
+  ctx.fillStyle = 'rgba(10,14,32,0.9)';
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  roundRect(x, y, w, h, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.font = 'bold ' + (fs || 20) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(label, x + w / 2, y + h / 2);
+  ctx.restore();
+}
 function roundRect(x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -516,6 +655,14 @@ function roundRect(x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+function drawWallet(x, y) {
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 8;
+  ctx.fillText('$ ' + M.wallet, x, y);
+  ctx.shadowBlur = 0;
 }
 
 function drawTitle(yc) {
@@ -533,19 +680,136 @@ function drawMenu() {
   drawGame();
   ctx.fillStyle = 'rgba(4,6,16,0.55)';
   ctx.fillRect(0, 0, W, H);
-  drawTitle(H * 0.24);
+  drawTitle(H * 0.2);
+  drawWallet(W - 16, 40);
+  if (M.streak > 1) {
+    ctx.fillStyle = '#ff6d00'; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'right';
+    ctx.fillText('\uD83D\uDD25 ' + M.streak + ' day streak', W - 16, 66);
+  }
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  ctx.font = '20px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('Neon endless racer — dodge the traffic!', W / 2, H * 0.38);
-  drawButton('play', W / 2 - 120, H * 0.47, 240, 76, 'PLAY', '#00ffc8');
+  ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('Neon endless racer — dodge the traffic!', W / 2, H * 0.34);
+  if (dailyBonus > 0) {
+    ctx.fillStyle = '#76ff03'; ctx.font = 'bold 22px sans-serif';
+    ctx.shadowColor = '#76ff03'; ctx.shadowBlur = 10;
+    ctx.fillText('DAILY BONUS +$' + dailyBonus + '  (streak ' + M.streak + ')', W / 2, H * 0.395);
+    ctx.shadowBlur = 0;
+  }
+  drawButton('play', W / 2 - 120, H * 0.44, 240, 76, 'PLAY', '#00ffc8');
+  drawButton('garage', W / 2 - 120, H * 0.44 + 96, 240, 64, 'GARAGE', '#ffb300', CARS.filter(c => M.owned.includes(c.id)).length + '/' + CARS.length + ' cars');
+  // next mission teaser
+  const am = activeMissions();
+  if (am.length) {
+    const m = am[0];
+    const prog = Math.min(1, (M.stats[m.stat] || 0) / m.goal);
+    ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('MISSION: ' + m.name + '  (' + Math.floor(prog * 100) + '%)', W / 2, H * 0.68);
+  }
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.font = '17px sans-serif';
-  ctx.fillText('← → / A D — change lane  ·  swipe on mobile', W / 2, H * 0.62);
-  ctx.fillText('Grab $ coins & NITRO, thread the gaps!', W / 2, H * 0.655);
+  ctx.fillText('\u2190 \u2192 / A D — change lane  ·  swipe on mobile', W / 2, H * 0.73);
+  ctx.fillText('Grab $ coins & NITRO, thread the gaps!', W / 2, H * 0.765);
   if (best > 0) {
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 22px sans-serif';
-    ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.71);
+    ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.82);
   }
+}
+
+// ---------- garage ----------
+function drawGarage() {
+  drawGame();
+  ctx.fillStyle = 'rgba(4,6,16,0.82)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ffb300'; ctx.shadowBlur = 20;
+  ctx.fillStyle = '#ffb300';
+  ctx.font = '900 42px sans-serif';
+  ctx.fillText('GARAGE', W / 2, 52);
+  ctx.shadowBlur = 0;
+  drawWallet(W - 16, 40);
+
+  // --- car carousel ---
+  const car = CARS[garageIdx];
+  const owned = M.owned.includes(car.id);
+  const selected = M.selected === car.id;
+  drawCarShape(W / 2, 190, CAR_W * 1.5, CAR_H * 1.5, car.color, true, true, car.shape);
+  drawSmallButton('prevCar', 60, 160, 60, 60, '\u2190', '#fff', 28);
+  drawSmallButton('nextCar', W - 120, 160, 60, 60, '\u2192', '#fff', 28);
+  ctx.fillStyle = car.color; ctx.font = 'bold 30px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(car.name, W / 2, 292);
+  // stats bars
+  const statRows = [
+    ['HANDLING', (car.handling - 8) / 8],
+    ['NITRO', car.nitro / 5],
+    ['COIN x' + car.coinMul.toFixed(2), (car.coinMul - 0.75) / 1.5],
+  ];
+  statRows.forEach(([label, v], i) => {
+    const y = 320 + i * 26;
+    ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(label, 110, y + 7);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(250, y, 180, 12);
+    ctx.fillStyle = car.color;
+    ctx.fillRect(250, y, 180 * Math.max(0.08, Math.min(1, v)), 12);
+  });
+  if (selected) {
+    ctx.fillStyle = '#00ffc8'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('\u2713 SELECTED', W / 2, 428);
+  } else if (owned) {
+    drawSmallButton('selectCar', W / 2 - 90, 405, 180, 46, 'SELECT', '#00ffc8', 22);
+  } else {
+    const afford = M.wallet >= car.cost;
+    drawSmallButton('buyCar', W / 2 - 110, 405, 220, 46, 'BUY  $' + car.cost, afford ? '#ffd700' : '#666', 22);
+  }
+
+  // --- upgrades ---
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('UPGRADES', 40, 490);
+  const keys = Object.keys(UPGRADES);
+  keys.forEach((k, i) => {
+    const u = UPGRADES[k];
+    const lvl = M.upg[k];
+    const y = 510 + i * 58;
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(u.name, 40, y + 20);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '14px sans-serif';
+    ctx.fillText(u.desc, 40, y + 40);
+    // level pips
+    for (let p = 0; p < u.max; p++) {
+      ctx.fillStyle = p < lvl ? '#00e5ff' : 'rgba(255,255,255,0.18)';
+      ctx.fillRect(250 + p * 22, y + 10, 16, 16);
+    }
+    if (lvl < u.max) {
+      const cost = u.costs[lvl];
+      drawSmallButton('upg_' + k, 390, y + 2, 118, 40, '$' + cost, M.wallet >= cost ? '#ffd700' : '#666', 18);
+    } else {
+      ctx.fillStyle = '#00ffc8'; ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('MAX', 410, y + 26);
+    }
+  });
+
+  // --- missions ---
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 22px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('MISSIONS', 40, 712);
+  const am = activeMissions();
+  if (!am.length) {
+    ctx.fillStyle = '#00ffc8'; ctx.font = '17px sans-serif';
+    ctx.fillText('All missions complete — legend!', 40, 742);
+  }
+  am.forEach((m, i) => {
+    const y = 726 + i * 44;
+    const cur = Math.min(m.goal, M.stats[m.stat] || 0);
+    ctx.fillStyle = '#fff'; ctx.font = '16px sans-serif'; ctx.textAlign = 'left';
+    ctx.fillText(m.name, 40, y + 14);
+    ctx.fillStyle = '#ffd700'; ctx.textAlign = 'right'; ctx.font = 'bold 15px sans-serif';
+    ctx.fillText('+$' + m.reward, W - 40, y + 14);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(40, y + 22, W - 80, 8);
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillRect(40, y + 22, (W - 80) * (cur / m.goal), 8);
+  });
+
+  drawButton('back', W / 2 - 100, H - 90, 200, 62, 'BACK', '#00ffc8');
 }
 
 function drawGameOver() {
@@ -556,23 +820,37 @@ function drawGameOver() {
   ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 24;
   ctx.fillStyle = '#ff5d8f';
   ctx.font = '900 58px sans-serif';
-  ctx.fillText('CRASHED!', W / 2, H * 0.2);
+  ctx.fillText('CRASHED!', W / 2, H * 0.17);
   ctx.shadowBlur = 0;
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 34px sans-serif';
-  ctx.fillText(Math.floor(G.dist) + ' m', W / 2, H * 0.3);
-  ctx.fillStyle = '#ffd700';
-  ctx.font = 'bold 24px sans-serif';
-  ctx.fillText('$ ' + G.coins + ' coins', W / 2, H * 0.36);
+  ctx.fillText(Math.floor(G.dist) + ' m', W / 2, H * 0.26);
+  if (runResult) {
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 24px sans-serif';
+    const earnedTxt = '+$' + runResult.earned + (runResult.doubled ? ' x2!' : '') + '  \u2192  bank $' + M.wallet;
+    ctx.fillText(earnedTxt, W / 2, H * 0.32);
+    // completed missions
+    runResult.missions.slice(0, 2).forEach((m, i) => {
+      ctx.fillStyle = '#76ff03'; ctx.font = 'bold 18px sans-serif';
+      ctx.fillText('\u2713 ' + m.name + '  +$' + m.reward, W / 2, H * 0.365 + i * 26);
+    });
+  }
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
   ctx.font = '20px sans-serif';
-  ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.41);
+  ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.435);
   let by = H * 0.48;
   if (!G.usedContinue) {
-    drawButton('continue', W / 2 - 150, by, 300, 80, 'CONTINUE', '#ffd700', 'watch ad · keep your run');
-    by += 104;
+    drawButton('continue', W / 2 - 150, by, 300, 78, 'CONTINUE', '#ffd700', 'watch ad · keep your run');
+    by += 96;
   }
-  drawButton('again', W / 2 - 150, by, 300, 76, 'PLAY AGAIN', '#00ffc8');
+  if (runResult && !runResult.doubled && runResult.earned > 0) {
+    drawButton('double', W / 2 - 150, by, 300, 70, 'DOUBLE $' + runResult.earned, '#ffb300', 'watch ad · x2 coins');
+    by += 88;
+  }
+  drawButton('again', W / 2 - 150, by, 300, 72, 'PLAY AGAIN', '#00ffc8');
+  by += 88;
+  drawButton('garage', W / 2 - 100, by, 200, 56, 'GARAGE', '#ffb300');
 }
 
 // ---------- main loop ----------
@@ -583,6 +861,7 @@ function frame(now) {
   buttons = [];
   update(dt);
   if (state === 'menu') drawMenu();
+  else if (state === 'garage') drawGarage();
   else if (state === 'playing') { drawGame(); drawHUD(); }
   else if (state === 'gameover') { drawGameOver(); drawHUD(); }
   requestAnimationFrame(frame);
@@ -595,11 +874,23 @@ function moveLane(dir) {
   if (nl !== G.lane) { G.lane = nl; audio.skidSound(); }
 }
 
+function garageAction(id) {
+  const car = CARS[garageIdx];
+  if (id === 'prevCar') { garageIdx = (garageIdx + CARS.length - 1) % CARS.length; audio.skidSound(); }
+  else if (id === 'nextCar') { garageIdx = (garageIdx + 1) % CARS.length; audio.skidSound(); }
+  else if (id === 'buyCar') { if (buyCar(car.id)) { audio.coinSound(6); happytime(); } }
+  else if (id === 'selectCar') { if (selectCar(car.id)) audio.coinSound(2); }
+  else if (id.startsWith('upg_')) { if (buyUpgrade(id.slice(4))) { audio.coinSound(6); happytime(); } }
+  else if (id === 'back') { state = 'menu'; }
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLane(-1);
   else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveLane(1);
   else if ((e.key === ' ' || e.key === 'Enter') && state === 'menu') startGame();
+  else if ((e.key === ' ' || e.key === 'Enter') && state === 'gameover') playAgain();
+  else if (e.key === 'Escape' && state === 'garage') state = 'menu';
 });
 
 function canvasPos(ev) {
@@ -620,6 +911,9 @@ canvas.addEventListener('pointerdown', (ev) => {
       if (b.id === 'play') startGame();
       else if (b.id === 'again') playAgain();
       else if (b.id === 'continue') continueRun();
+      else if (b.id === 'double') doubleCoins();
+      else if (b.id === 'garage') { garageIdx = CARS.findIndex(c => c.id === M.selected); if (garageIdx < 0) garageIdx = 0; state = 'garage'; }
+      else garageAction(b.id);
       touchStart = null;
       return;
     }
@@ -650,6 +944,9 @@ async function boot() {
   await initSDK();
   loadingStart();   // MUST come after initSDK (sdk is null before)
   best = loadBest();
+  loadMeta();
+  firstRun = M.stats.runs === 0;
+  dailyBonus = claimDaily();
   mutedBySettings = getMuteSetting();
   audio.setMuted(mutedBySettings);
   onSettingsChange((s) => {
@@ -668,6 +965,8 @@ if (debug) {
   window.__astro = {
     forceGameOver: () => { if (state === 'playing') doCrash(); },
     addScore: (n) => { G.dist += n; },
+    grantCoins: (n) => { addWallet(n); },
+    setStat: (k, v) => { M.stats[k] = v; },
     getState: () => ({
       state,
       score: Math.floor(G.dist),
@@ -675,6 +974,16 @@ if (debug) {
       speed: speedKmh(),
       coins: G.coins,
       playerY: PLAYER_Y,
+      wallet: M.wallet,
+      owned: M.owned.slice(),
+      selected: M.selected,
+      upgrades: Object.assign({}, M.upg),
+      missionsDone: M.missionsDone,
+      stats: Object.assign({}, M.stats),
+      streak: M.streak,
+      nmChain: G.nmChain,
+      shieldReady: G.shieldReady,
+      runResult: runResult ? { earned: runResult.earned, doubled: runResult.doubled, missions: runResult.missions.map(m => m.id) } : null,
       obstacles: G.obstacles.map(o => ({ lane: o.lane, y: o.y, h: o.h })),
       pickups: G.pickups.map(p => ({ lane: p.lane, y: p.y, kind: p.kind })),
       buttons: buttons.map(b => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h })),
