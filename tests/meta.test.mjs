@@ -1,7 +1,7 @@
 // Meta-progression test: wallet, garage buy/select, upgrades, missions, streak, persistence
 import { chromium } from 'playwright';
 
-const URL = process.env.URL || 'http://localhost:8515/?debug=1';
+const URL = process.env.URL || 'http://localhost:8523/?debug=1';
 const errors = [];
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });

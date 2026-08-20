@@ -14,7 +14,7 @@ const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome'
 async function attempt() {
   const ctx = await browser.newContext({ viewport: size, recordVideo: { dir, size } });
   const page = await ctx.newPage();
-  await page.goto('http://localhost:8484/?debug=1');
+  await page.goto('http://localhost:8523/?debug=1');
   await page.waitForFunction(() => window.__astro && window.__astro.getState().state === 'menu', null, { timeout: 15000 });
   await page.waitForTimeout(800);
   // click PLAY

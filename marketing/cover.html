@@ -63,6 +63,19 @@ for (let l = 1; l < 4; l++) {
   }
 }
 
+// synthwave sun above horizon
+{
+  const sxx = cx + W*(portrait?0.30:0.36), syy = horizonY - 6*sq, sr = 130*sq;
+  g.save();
+  g.beginPath(); g.arc(sxx, syy, sr, Math.PI, 0); g.closePath(); g.clip();
+  const sg = g.createLinearGradient(0, syy - sr, 0, syy);
+  sg.addColorStop(0, '#ffd76a'); sg.addColorStop(0.55, '#ff6d9e'); sg.addColorStop(1, '#ff2d78');
+  g.fillStyle = sg; g.fillRect(sxx - sr, syy - sr, sr*2, sr);
+  g.fillStyle = '#0d1030';
+  for (let i=0;i<6;i++) g.fillRect(sxx - sr, syy - 12*sq - i*24*sq, sr*2, (3 + i*2.4)*sq);
+  g.restore();
+}
+
 // city skyline silhouette at horizon
 g.fillStyle = '#0a0d22';
 seed = 99;
@@ -93,21 +106,58 @@ function car(x, y, w, color, boost) {
     g.moveTo(-w*0.3, h*0.5); g.lineTo(0, h*1.7); g.lineTo(w*0.3, h*0.5);
     g.closePath(); g.fill();
   }
+  const hw = w/2, hh = h/2;
+  // underglow
+  const ug = g.createRadialGradient(0, hh*0.1, hw*0.2, 0, hh*0.1, hw*2.2);
+  ug.addColorStop(0, color + 'aa'); ug.addColorStop(1, color + '00');
+  g.fillStyle = ug;
+  g.beginPath(); g.ellipse(0, hh*0.1, hw*2.2, hh*1.3, 0, 0, Math.PI*2); g.fill();
+  // wheels
+  g.fillStyle = '#07080f';
+  for (const wy of [-hh*0.52, hh*0.5]) for (const wx of [-hw*0.94, hw*0.94])
+    g.fillRect(wx - w*0.09, wy - h*0.1, w*0.18, h*0.2);
+  // body silhouette (wedge nose, curved sides, tail)
   g.shadowColor = color; g.shadowBlur = 40*sq;
-  g.fillStyle = color;
-  const r = w*0.28;
   g.beginPath();
-  g.moveTo(-w/2+r, -h/2); g.arcTo(w/2,-h/2,w/2,h/2,r); g.arcTo(w/2,h/2,-w/2,h/2,r);
-  g.arcTo(-w/2,h/2,-w/2,-h/2,r); g.arcTo(-w/2,-h/2,w/2,-h/2,r);
-  g.closePath(); g.fill();
+  g.moveTo(-hw*0.5, -hh);
+  g.quadraticCurveTo(-hw*1.02, -hh*0.45, -hw, -hh*0.15);
+  g.lineTo(-hw*0.94, hh*0.55);
+  g.quadraticCurveTo(-hw*0.86, hh*0.92, -hw*0.7, hh);
+  g.lineTo(hw*0.7, hh);
+  g.quadraticCurveTo(hw*0.86, hh*0.92, hw*0.94, hh*0.55);
+  g.lineTo(hw, -hh*0.15);
+  g.quadraticCurveTo(hw*1.02, -hh*0.45, hw*0.5, -hh);
+  g.quadraticCurveTo(0, -hh*1.05, -hw*0.5, -hh);
+  g.closePath();
+  const bg2 = g.createLinearGradient(-hw, 0, hw, 0);
+  bg2.addColorStop(0, '#083a30'); bg2.addColorStop(0.3, color); bg2.addColorStop(0.5, '#ffffff');
+  bg2.addColorStop(0.52, color); bg2.addColorStop(1, '#083a30');
+  // gradient per color: fallback tint via composite of color body + white sheen
+  g.fillStyle = color; g.fill();
   g.shadowBlur = 0;
-  g.fillStyle = 'rgba(10,14,30,0.9)';
-  g.fillRect(-w*0.32, -h*0.18, w*0.64, h*0.3);
-  g.fillStyle = 'rgba(255,255,255,0.4)';
-  g.fillRect(-w*0.06, -h/2+4, w*0.12, h-8);
-  g.fillStyle = '#ff3040';
-  g.fillRect(-w*0.38, h/2-h*0.12, w*0.2, h*0.07);
-  g.fillRect(w*0.18, h/2-h*0.12, w*0.2, h*0.07);
+  g.save(); g.clip();
+  const sheen = g.createLinearGradient(-hw, 0, hw, 0);
+  sheen.addColorStop(0, 'rgba(0,0,0,0.5)'); sheen.addColorStop(0.32, 'rgba(0,0,0,0)');
+  sheen.addColorStop(0.5, 'rgba(255,255,255,0.45)'); sheen.addColorStop(0.68, 'rgba(0,0,0,0)');
+  sheen.addColorStop(1, 'rgba(0,0,0,0.5)');
+  g.fillStyle = sheen; g.fillRect(-hw, -hh, w, h);
+  g.restore();
+  // cabin glass
+  g.beginPath();
+  g.moveTo(-hw*0.62, -hh*0.3); g.quadraticCurveTo(0, -hh*0.52, hw*0.62, -hh*0.3);
+  g.lineTo(hw*0.56, hh*0.26); g.quadraticCurveTo(0, hh*0.42, -hw*0.56, hh*0.26);
+  g.closePath();
+  const gl = g.createLinearGradient(0, -hh*0.4, 0, hh*0.3);
+  gl.addColorStop(0, '#0b1230'); gl.addColorStop(0.5, '#22366e'); gl.addColorStop(1, '#0a0f28');
+  g.fillStyle = gl; g.fill();
+  // spoiler
+  g.fillStyle = 'rgba(0,0,0,0.55)';
+  g.fillRect(-hw*1.02, hh*0.74, w*1.02, h*0.055);
+  // tail light strip
+  g.shadowColor = '#ff2050'; g.shadowBlur = 20*sq;
+  g.fillStyle = '#ff2050';
+  g.fillRect(-hw*0.6, hh - h*0.06, hw*1.2, h*0.05);
+  g.shadowBlur = 0;
   g.restore();
 }
 

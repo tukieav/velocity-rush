@@ -1,7 +1,7 @@
-// Full-flow test for Velocity Rush (port 8515, system Chrome)
+// Full-flow test for Velocity Rush (port 8523, system Chrome)
 import { chromium } from 'playwright';
 
-const URL = process.env.URL || 'http://localhost:8515/?debug=1';
+const URL = process.env.URL || 'http://localhost:8523/?debug=1';
 const errors = [];
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
