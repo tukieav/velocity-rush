@@ -133,10 +133,22 @@ function resetRun() {
   G.shake = 0; G.coinCombo = 0; G.coinComboT = 0;
   G.nmChain = 0; G.nmChainT = 0;
   G.runNearMisses = 0; G.runNitros = 0; G.runBestChain = 0;
-  G.time = 0; G.spawnT = 0.8; G.pickupT = 2.2; G.nextHappy = 1000;
+  G.time = 0; G.spawnT = 4.4; G.pickupT = 5.0; G.nextHappy = 1000;
   G.crashDone = false;
   G.crashing = false; G.slowmoT = 0; G.flash = 0;
   G.tilt = 0; G.fov = 1; G.texScroll = 0; G.railScroll = 0;
+  // Script the first few seconds instead of asking the random spawner to make
+  // a good first impression. Outside cars frame a safe starting lane; the
+  // marked car is far enough ahead to invite, rather than force, a close pass.
+  const opening = [
+    { lane: 0, y: HORIZON + 30, rel: 0.78, color: '#ff2d78', shape: 4 },
+    { lane: 3, y: HORIZON - 86, rel: 0.73, color: '#ffb300', shape: 1 },
+    { lane: 2, y: HORIZON - 244, rel: 0.78, color: '#00e5ff', shape: 6, marked: true },
+  ];
+  for (const o of opening) G.obstacles.push({ ...o, h: CAR_H, truck: false, passed: false, intro: true });
+  // The reward line reaches the readable mid-road area in the opening moments
+  // without dropping a pickup underneath the player at launch.
+  for (let i = 0; i < 5; i++) G.pickups.push({ lane: 1, y: HORIZON - 690 - i * 54, kind: 'coin', intro: true });
   runResult = null;
 }
 
@@ -348,8 +360,18 @@ function update(dt) {
   G.texScroll = (G.texScroll + G.speed * dt) % 160;
   G.railScroll = (G.railScroll + G.speed * dt) % 70;
 
-  // props
-  for (const p of props) { p.y += G.speed * dt * 0.9; if (p.y > H + 60) { p.y = -60; const r = Math.random(); p.lamp = r < 0.35; p.bill = r >= 0.35 && r < 0.5; p.billHue = Math.random() < 0.5 ? '#ff2d78' : '#00e5ff'; p.billTxt = ['NEON', 'RUSH', 'TURBO', 'DRIVE', '24H'][Math.floor(Math.random() * 5)]; } }
+  // roadside choreography: dense rhythm on desktop, while portrait keeps a
+  // little breathing room.  Each recycled prop gets a new readable silhouette.
+  for (const p of props) {
+    p.y += G.speed * dt * 0.9;
+    if (p.y > H + 100) {
+      p.y = HORIZON - 80;
+      const kinds = ['lamp', 'barrier', 'bill', 'palm', 'tower'];
+      p.kind = kinds[Math.floor(Math.random() * kinds.length)];
+      p.billHue = Math.random() < 0.5 ? '#ff2d78' : '#00e5ff';
+      p.billTxt = ['NEON', 'RUSH', 'TURBO', 'DRIVE', '24H'][Math.floor(Math.random() * 5)];
+    }
+  }
 
   // spawn — dynamic difficulty: traffic density ramps slower in the 1st minute
   G.spawnT -= dt;
@@ -501,9 +523,12 @@ function rebuildScenery() {
     x: Math.random() * W, y: Math.random() * Math.max(92, HORIZON - 8),
     r: Math.random() * 1.6 + 0.4, s: Math.random() * 0.5 + 0.2,
   }));
-  props = Array.from({ length: 12 }, (_, i) => ({
-    y: (i / 12) * H, left: i % 2 === 0, lamp: i % 3 === 0, bill: i % 4 === 3,
-    billHue: i % 2 ? '#ff2d78' : '#00e5ff', billTxt: ['NEON', 'RUSH', 'TURBO'][i % 3],
+  const propCount = isDesktop ? 34 : 16;
+  const propKinds = ['lamp', 'barrier', 'bill', 'palm', 'tower', 'lamp', 'barrier', 'bill'];
+  props = Array.from({ length: propCount }, (_, i) => ({
+    y: HORIZON + (i / propCount) * (H - HORIZON + 80), left: i % 2 === 0,
+    kind: propKinds[i % propKinds.length],
+    billHue: i % 2 ? '#ff2d78' : '#00e5ff', billTxt: ['NEON', 'RUSH', 'TURBO', 'VOID', 'NITE'][i % 5],
   }));
   SKY_FAR = genSkyline(24, 52);
   SKY_MID = genSkyline(34, 74);
@@ -833,7 +858,7 @@ function drawRoad() {
   }
   // lamp light pools on the road
   for (const p of props) {
-    if (!p.lamp || p.y < HORIZON) continue;
+    if (p.kind !== 'lamp' || p.y < HORIZON) continue;
     const s = perspS(p.y);
     const edge = p.left ? ROAD_X + 40 : ROAD_X + ROAD_W - 40;
     const px = perspX(edge, p.y);
@@ -901,11 +926,11 @@ function drawRoad() {
     const px = perspX(side, p.y);
     if (smear > 0.05) { // motion blur streak under prop
       ctx.globalAlpha = 0.16 * smear;
-      ctx.fillStyle = p.lamp ? '#ffe27a' : '#7c4dff';
+      ctx.fillStyle = p.kind === 'lamp' ? '#ffe27a' : '#7c4dff';
       ctx.fillRect(px - 2 * s, p.y - 40 * s, 4 * s, 70 * s * (0.6 + smear));
       ctx.globalAlpha = 1;
     }
-    if (p.bill) {
+    if (p.kind === 'bill') {
       // neon billboard on posts
       const bw = 64 * s, bh = 34 * s;
       ctx.fillStyle = '#20264a';
@@ -925,7 +950,7 @@ function drawRoad() {
         ctx.fillText(p.billTxt || 'NEON', px, p.y - 58 * s - bh / 2);
       }
       ctx.shadowBlur = 0;
-    } else if (p.lamp) {
+    } else if (p.kind === 'lamp') {
       ctx.fillStyle = '#39406b';
       ctx.fillRect(px - 2.6 * s, p.y - 62 * s, 5.2 * s, 62 * s);
       const armDir = p.left ? 1 : -1;
@@ -933,6 +958,30 @@ function drawRoad() {
       ctx.shadowColor = '#ffe27a'; ctx.shadowBlur = 16;
       ctx.fillStyle = '#ffe27a';
       ctx.beginPath(); ctx.arc(px + armDir * 24 * s, p.y - 58 * s, 6 * s, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+    } else if (p.kind === 'barrier') {
+      // chunky foreground crash barriers give the road a useful close layer
+      // and punctuate the lamps instead of leaving a dark shoulder.
+      const bw = 82 * s, bh = 20 * s;
+      ctx.fillStyle = '#222a46';
+      roundRect(px - bw / 2, p.y - bh, bw, bh, 3 * s); ctx.fill();
+      ctx.fillStyle = '#ffb300';
+      for (let stripe = -2; stripe <= 2; stripe++) {
+        ctx.save(); ctx.translate(px + stripe * 18 * s, p.y - bh * 0.5); ctx.rotate(-0.48);
+        ctx.fillRect(-3 * s, -bh * 0.52, 6 * s, bh * 1.05); ctx.restore();
+      }
+      ctx.fillStyle = '#3a4566';
+      ctx.fillRect(px - bw * 0.32, p.y, 5 * s, 20 * s); ctx.fillRect(px + bw * 0.26, p.y, 5 * s, 20 * s);
+    } else if (p.kind === 'tower') {
+      // near roadside storefront / service tower with animated windows
+      const tw = 44 * s, th = 116 * s;
+      ctx.fillStyle = '#171b37'; ctx.fillRect(px - tw / 2, p.y - th, tw, th);
+      ctx.fillStyle = 'rgba(170,230,255,0.5)';
+      for (let wy = p.y - th + 12 * s; wy < p.y - 12 * s; wy += 18 * s) {
+        ctx.fillRect(px - tw * 0.28, wy, tw * 0.16, 6 * s); ctx.fillRect(px + tw * 0.12, wy, tw * 0.16, 6 * s);
+      }
+      ctx.shadowColor = p.billHue; ctx.shadowBlur = 10;
+      ctx.fillStyle = p.billHue; ctx.fillRect(px - tw * 0.6, p.y - th - 8 * s, tw * 1.2, 6 * s);
       ctx.shadowBlur = 0;
     } else {
       // neon palm
@@ -1014,6 +1063,12 @@ function drawGame() {
       }
     }
     drawCarShape(x, yc, CAR_W * s, o.h * s, o.color, true, false, o.shape != null ? o.shape : 0, 0);
+    if (o.marked && G.time < 8) {
+      ctx.strokeStyle = '#ff2d78'; ctx.lineWidth = Math.max(1, 2 * s);
+      ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.ellipse(x, yc, CAR_W * s * 0.82, o.h * s * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
   }
 
   // nitro trail
@@ -1233,6 +1288,20 @@ function drawHUD() {
     ctx.fillStyle = '#9ff3ff'; ctx.font = '900 13px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('NITRO', W / 2, 95);
   }
+  // An explicit launch event reads as a game objective in screenshots and
+  // points to the marked opening vehicle without obstructing the road view.
+  if (state === 'playing' && G.time < 8) {
+    const eventW = isDesktop ? 270 : 230;
+    const eventX = W / 2 - eventW / 2;
+    const eventY = 16;
+    ctx.fillStyle = 'rgba(19,8,35,0.84)'; ctx.strokeStyle = '#ff2d78'; ctx.lineWidth = 2;
+    ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 12;
+    roundRect(eventX, eventY, eventW, 45, 10); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff8fb3'; ctx.font = '900 15px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('CLOSE CALL CHALLENGE  +' + 15, W / 2, eventY + 20);
+    ctx.fillStyle = 'rgba(255,255,255,0.68)'; ctx.font = 'bold 11px sans-serif';
+    ctx.fillText('thread past the marked rival', W / 2, eventY + 35);
+  }
   // A concise first-run callout makes the boost loop discoverable without
   // covering traffic.  It lives in a lower corner on landscape broadcast HUD.
   if (state === 'playing' && G.time < 8 && G.nitroT <= 0) {
@@ -1406,9 +1475,121 @@ function drawGarageWorkshop() {
   ctx.fillStyle = floor; ctx.fillRect(0, H * 0.56, W, H * 0.44);
   ctx.strokeStyle = 'rgba(0,229,255,0.18)'; ctx.lineWidth = 1;
   for (let y = H * 0.60; y < H; y += 36) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  // Workshop depth cues: lift arms, service monitors and long floor-light
+  // reflections. They intentionally live behind the panels so the garage is
+  // a room first and an interface second.
+  for (const x of [W * 0.19, W * 0.81]) {
+    ctx.strokeStyle = 'rgba(116,145,195,0.7)'; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.moveTo(x - 54, H * 0.78); ctx.lineTo(x - 16, H * 0.42); ctx.lineTo(x + 26, H * 0.78); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 54, H * 0.78); ctx.lineTo(x + 16, H * 0.42); ctx.lineTo(x - 26, H * 0.78); ctx.stroke();
+    ctx.fillStyle = '#0b1024'; ctx.fillRect(x - 46, H * 0.27, 92, 52);
+    ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2; ctx.strokeRect(x - 46, H * 0.27, 92, 52);
+    ctx.fillStyle = 'rgba(0,229,255,0.32)'; ctx.fillRect(x - 36, H * 0.283, 72, 28);
+  }
+  for (const x of [W * 0.25, W * 0.5, W * 0.75]) {
+    const rg = ctx.createLinearGradient(x - 70, H * 0.57, x + 70, H);
+    rg.addColorStop(0, 'rgba(0,229,255,0.16)'); rg.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = rg; ctx.fillRect(x - 70, H * 0.57, 140, H * 0.43);
+  }
+}
+
+function drawGaragePanel(x, y, w, h, title, color) {
+  const pg = ctx.createLinearGradient(x, y, x, y + h);
+  pg.addColorStop(0, 'rgba(11,15,35,0.93)'); pg.addColorStop(1, 'rgba(5,8,21,0.82)');
+  ctx.fillStyle = pg; ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.shadowColor = color; ctx.shadowBlur = 14;
+  roundRect(x, y, w, h, 16); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.fillStyle = color; ctx.font = '900 20px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(title, x + 20, y + 28);
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x + 18, y + 48); ctx.lineTo(x + w - 18, y + 48); ctx.stroke();
+}
+
+function drawGarageDesktop() {
+  drawGarageWorkshop();
+  const car = CARS[garageIdx];
+  const owned = M.owned.includes(car.id);
+  const selected = M.selected === car.id;
+  const pad = 34;
+  const panelW = Math.min(360, Math.max(280, W * 0.205));
+  const panelY = 145;
+  const panelH = H - panelY - 116;
+  const leftX = pad, rightX = W - pad - panelW, gc = W / 2;
+  const centerL = leftX + panelW + 26, centerR = rightX - 26;
+  const centerW = centerR - centerL;
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ffb300'; ctx.shadowBlur = 20;
+  ctx.fillStyle = '#ffb300'; ctx.font = '900 46px sans-serif'; ctx.fillText('GARAGE', gc, 55); ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(210,239,255,0.65)'; ctx.font = 'bold 14px sans-serif';
+  ctx.fillText('NIGHT SHIFT PERFORMANCE LAB', gc, 88);
+  drawWallet(W - 28, 42);
+
+  drawGaragePanel(leftX, panelY, panelW, panelH, 'PERFORMANCE', '#00e5ff');
+  drawGaragePanel(rightX, panelY, panelW, panelH, 'MISSIONS', '#ffb300');
+
+  // Central showroom, deliberately large enough to read as a vehicle bay at
+  // 1080p instead of a compact menu illustration.
+  const garageCarW = Math.min(210, CAR_W * 1.45);
+  const garageCarH = garageCarW * 1.70;
+  const carY = Math.max(290, H * 0.38);
+  const platformY = carY + garageCarH * 0.62;
+  const ga = G.time * 0.55;
+  const spotlight = ctx.createLinearGradient(0, 110, 0, platformY + 30);
+  spotlight.addColorStop(0, 'rgba(255,255,255,0.17)'); spotlight.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = spotlight;
+  ctx.beginPath(); ctx.moveTo(gc - 45, 112); ctx.lineTo(gc + 45, 112); ctx.lineTo(gc + 240, platformY + 20); ctx.lineTo(gc - 240, platformY + 20); ctx.closePath(); ctx.fill();
+  ctx.save(); ctx.translate(gc, platformY);
+  ctx.fillStyle = 'rgba(14,18,46,0.96)'; ctx.beginPath(); ctx.ellipse(0, 0, Math.min(255, centerW * 0.40), 54, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = car.color; ctx.lineWidth = 3; ctx.shadowColor = car.color; ctx.shadowBlur = 20;
+  ctx.beginPath(); ctx.ellipse(0, 0, Math.min(255, centerW * 0.40), 54, 0, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0;
+  ctx.fillStyle = car.color;
+  for (let i = 0; i < 16; i++) { const a = ga + i * Math.PI / 8; ctx.globalAlpha = 0.55; ctx.beginPath(); ctx.arc(Math.cos(a) * Math.min(225, centerW * 0.35), Math.sin(a) * 43, 3, 0, Math.PI * 2); ctx.fill(); }
+  ctx.restore(); ctx.globalAlpha = 1;
+  ctx.save(); ctx.globalAlpha = 0.14; ctx.beginPath(); ctx.ellipse(gc, platformY + 38, Math.min(245, centerW * 0.38), 45, 0, 0, Math.PI * 2); ctx.clip(); ctx.translate(gc, platformY + 48); ctx.scale(1, -0.45); ctx.rotate(-ga); drawCarShape(0, 0, garageCarW, garageCarH, car.color, false, true, car.shape); ctx.restore();
+  ctx.save(); ctx.translate(gc, carY); ctx.rotate(ga); drawCarShape(0, 0, garageCarW, garageCarH, car.color, true, true, car.shape); ctx.restore();
+  const arrowGap = Math.min(centerW * 0.42, 300);
+  drawSmallButton('prevCar', gc - arrowGap - 30, carY - 30, 60, 60, '←', '#fff', 28);
+  drawSmallButton('nextCar', gc + arrowGap - 30, carY - 30, 60, 60, '→', '#fff', 28);
+  ctx.fillStyle = car.color; ctx.font = '900 34px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(car.name, gc, platformY + 84);
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = 'bold 13px sans-serif'; ctx.fillText(selected ? 'ACTIVE VEHICLE' : owned ? 'OWNED VEHICLE' : 'LOCKED VEHICLE', gc, platformY + 108);
+  if (selected) { ctx.fillStyle = '#00ffc8'; ctx.font = 'bold 19px sans-serif'; ctx.fillText('✓ SELECTED', gc, platformY + 137); }
+  else if (owned) drawSmallButton('selectCar', gc - 90, platformY + 116, 180, 44, 'SELECT', '#00ffc8', 20);
+  else drawSmallButton('buyCar', gc - 112, platformY + 116, 224, 44, 'BUY  $' + car.cost, M.wallet >= car.cost ? '#ffd700' : '#666', 20);
+
+  const stats = [['HANDLING', (car.handling - 8) / 8], ['NITRO', car.nitro / 5], ['COIN BONUS', (car.coinMul - 0.75) / 1.5]];
+  stats.forEach(([label, value], i) => {
+    const y = panelY + 82 + i * 53;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(label, leftX + 20, y);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'; roundRect(leftX + 20, y + 13, panelW - 40, 12, 5); ctx.fill();
+    ctx.fillStyle = car.color; roundRect(leftX + 20, y + 13, (panelW - 40) * Math.max(0.08, Math.min(1, value)), 12, 5); ctx.fill();
+  });
+  ctx.fillStyle = '#fff'; ctx.font = '900 17px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('UPGRADES', leftX + 20, panelY + 264);
+  Object.keys(UPGRADES).forEach((k, i) => {
+    const u = UPGRADES[k], lvl = M.upg[k], y = panelY + 288 + i * 94;
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText(u.name, leftX + 20, y);
+    ctx.fillStyle = 'rgba(255,255,255,0.56)'; ctx.font = '13px sans-serif'; ctx.fillText(u.desc, leftX + 20, y + 19);
+    for (let p = 0; p < u.max; p++) { ctx.fillStyle = p < lvl ? '#00e5ff' : 'rgba(255,255,255,0.16)'; ctx.fillRect(leftX + 20 + p * 18, y + 33, 13, 11); }
+    if (lvl < u.max) drawSmallButton('upg_' + k, leftX + panelW - 102, y + 27, 82, 34, '$' + u.costs[lvl], M.wallet >= u.costs[lvl] ? '#ffd700' : '#666', 15);
+    else { ctx.fillStyle = '#00ffc8'; ctx.font = 'bold 14px sans-serif'; ctx.fillText('MAX', leftX + panelW - 55, y + 48); }
+  });
+
+  const am = activeMissions();
+  ctx.fillStyle = 'rgba(255,255,255,0.62)'; ctx.font = '14px sans-serif'; ctx.textAlign = 'left'; ctx.fillText('COMPLETE RUNS TO UNLOCK THE FULL FLEET', rightX + 20, panelY + 77);
+  if (!am.length) { ctx.fillStyle = '#00ffc8'; ctx.font = 'bold 17px sans-serif'; ctx.fillText('All missions complete — legend!', rightX + 20, panelY + 114); }
+  am.slice(0, 5).forEach((m, i) => {
+    const y = panelY + 112 + i * 94, cur = Math.min(m.goal, M.stats[m.stat] || 0);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(m.name, rightX + 20, y);
+    ctx.fillStyle = '#ffd700'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'right'; ctx.fillText('+$' + m.reward, rightX + panelW - 20, y);
+    ctx.fillStyle = 'rgba(255,255,255,0.14)'; roundRect(rightX + 20, y + 16, panelW - 40, 10, 5); ctx.fill();
+    ctx.fillStyle = '#00e5ff'; roundRect(rightX + 20, y + 16, (panelW - 40) * (cur / m.goal), 10, 5); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '12px sans-serif'; ctx.textAlign = 'left'; ctx.fillText(cur + ' / ' + m.goal, rightX + 20, y + 44);
+  });
+  drawButton('back', gc - 100, H - 82, 200, 58, 'BACK', '#00ffc8');
 }
 
 function drawGarage() {
+  if (isDesktop) { drawGarageDesktop(); return; }
   drawGarageWorkshop();
   const gc = W / 2;
   const gx = gc - 270;
@@ -1724,6 +1905,7 @@ if (debug) {
       nitroT: G.nitroT,
       shieldReady: G.shieldReady,
       runResult: runResult ? { earned: runResult.earned, doubled: runResult.doubled, missions: runResult.missions.map(m => m.id) } : null,
+      trafficVisible: G.obstacles.filter(o => o.y + o.h > HORIZON && o.y < H).length,
       obstacles: G.obstacles.map(o => ({ lane: o.lane, y: o.y, h: o.h })),
       pickups: G.pickups.map(p => ({ lane: p.lane, y: p.y, kind: p.kind })),
       buttons: buttons.map(b => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h })),

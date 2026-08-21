@@ -79,11 +79,22 @@ async function checkCanvas(page, vp) {
       await page.waitForTimeout(120);
       const after = await page.evaluate(() => window.__astro.getState().lane);
       assert(after === Math.min(3, before + 1), 'lane control failed');
+      // A launch image must prove that the opening is a game, not an empty
+      // road: drive long enough for the scripted reward line and marked rival
+      // to enter frame, then require at least two live traffic vehicles.
+      await page.waitForTimeout(3200);
+      const opening = await page.evaluate(() => window.__astro.getState());
+      assert(opening.state === 'playing', 'opening traffic caused an early crash');
+      assert(opening.trafficVisible >= 2,
+        'opening scene has too little visible traffic: ' + opening.trafficVisible);
+      assert(opening.pickups.filter((p) => p.kind === 'coin').length >= 2,
+        'opening scene lost its coin line');
+      await checkCanvas(page, vp);
+      await page.screenshot({ path: OUT + '/' + vp.width + 'x' + vp.height + '-gameplay.png' });
       await page.evaluate(() => window.__astro.nitro());
       await page.waitForTimeout(100);
       assert((await page.evaluate(() => window.__astro.getState().nitroT)) > 0, 'nitro control failed');
       await checkCanvas(page, vp);
-      await page.screenshot({ path: OUT + '/' + vp.width + 'x' + vp.height + '-gameplay.png' });
       await page.close();
       console.log('OK', vp.width + 'x' + vp.height);
     }
