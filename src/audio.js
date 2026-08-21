@@ -23,6 +23,17 @@ export function setMuted(m) {
 
 export function unlockAudio() { ensureCtx(); }
 
+// Lifecycle hooks deliberately suspend the context rather than toggling mute:
+// an SDK ad / background tab must not advance or leak WebAudio, and user mute
+// remains intact when gameplay resumes.
+export function pauseAudio() {
+  if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
+}
+
+export function resumeAudio() {
+  if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {});
+}
+
 function tone(freq, dur, type, vol, delay = 0) {
   if (muted || !ctx) return;
   const t0 = ctx.currentTime + delay;
