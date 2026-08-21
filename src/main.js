@@ -16,10 +16,12 @@ let CAR_W = 54, CAR_H = 92;
 let TRUCK_H = 184;
 let HORIZON = 96;
 let isDesktop = false;
+let sceneryReady = false;
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 function resize() {
+  const oldW = W, oldH = H;
   const vw = Math.max(1, window.innerWidth), vh = Math.max(1, window.innerHeight);
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   W = vw; H = vh;
@@ -40,6 +42,10 @@ function resize() {
   canvas.style.width = W + 'px';
   canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // The city and roadside layers contain positions generated from the logical
+  // viewport. Rebuild them after a real size change so rotating a device or
+  // resizing a desktop window never exposes a portrait-sized background.
+  if (sceneryReady && (oldW !== W || oldH !== H)) rebuildScenery();
 }
 window.addEventListener('resize', resize); resize();
 
@@ -95,11 +101,7 @@ const G = {
 };
 
 let stars = [];
-for (let i = 0; i < 90; i++) stars.push({ x: Math.random() * W, y: Math.random() * 92, r: Math.random() * 1.6 + 0.4, s: Math.random() * 0.5 + 0.2 });
-
-// side props (trees / lampposts), recycled
 let props = [];
-for (let i = 0; i < 12; i++) props.push({ y: (i / 12) * H, left: i % 2 === 0, lamp: i % 3 === 0, bill: i % 4 === 3, billHue: i % 2 ? '#ff2d78' : '#00e5ff', billTxt: ['NEON', 'RUSH', 'TURBO'][i % 3] });
 
 const PALETTE = ['#ff2d78', '#ffb300', '#7c4dff', '#00e5ff', '#76ff03', '#ff6d00'];
 
@@ -472,7 +474,9 @@ noiseCv.width = 160; noiseCv.height = 160;
 }
 const asphaltPat = ctx.createPattern(noiseCv, 'repeat');
 
-// city skyline layers (generated once)
+// City and roadside layers are generated for the current logical viewport.
+// They are rebuilt by resize() so an orientation change does not retain a
+// narrow portrait skyline on a newly wide canvas.
 function genSkyline(hMin, hMax) {
   const b = []; let x = -50;
   while (x < W + 70) {
@@ -487,11 +491,32 @@ function genSkyline(hMin, hMax) {
   }
   return b;
 }
-const SKY_FAR = genSkyline(24, 52);
-const SKY_MID = genSkyline(34, 74);
-const SKY_NEAR = genSkyline(16, 40);
-const MTS = [];
-{ let mx = -40; while (mx < W + 60) { const mw = 80 + Math.random() * 120; MTS.push({ x: mx, w: mw, h: 28 + Math.random() * 36 }); mx += mw * 0.55; } }
+let SKY_FAR = [];
+let SKY_MID = [];
+let SKY_NEAR = [];
+let MTS = [];
+
+function rebuildScenery() {
+  stars = Array.from({ length: 90 }, () => ({
+    x: Math.random() * W, y: Math.random() * Math.max(92, HORIZON - 8),
+    r: Math.random() * 1.6 + 0.4, s: Math.random() * 0.5 + 0.2,
+  }));
+  props = Array.from({ length: 12 }, (_, i) => ({
+    y: (i / 12) * H, left: i % 2 === 0, lamp: i % 3 === 0, bill: i % 4 === 3,
+    billHue: i % 2 ? '#ff2d78' : '#00e5ff', billTxt: ['NEON', 'RUSH', 'TURBO'][i % 3],
+  }));
+  SKY_FAR = genSkyline(24, 52);
+  SKY_MID = genSkyline(34, 74);
+  SKY_NEAR = genSkyline(16, 40);
+  MTS = [];
+  for (let mx = -40; mx < W + 60;) {
+    const mw = 80 + Math.random() * 120;
+    MTS.push({ x: mx, w: mw, h: 28 + Math.random() * 36 });
+    mx += mw * 0.55;
+  }
+}
+rebuildScenery();
+sceneryReady = true;
 
 function drawSkyLayer(list, base, color, winColor, par, winA) {
   const off = (W / 2 - G.playerX) * par;
