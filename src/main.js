@@ -2,6 +2,8 @@
 import { initSDK, gameplayStart, gameplayStop, loadingStart, loadingStop, happytime, requestAd, getMuteSetting, onSettingsChange, loadBest, saveBest } from './sdk.js';
 import * as audio from './audio.js';
 import { CARS, UPGRADES, M, loadMeta, saveMeta, getCar, nitroDuration, magnetRadius, hasShield, buyCar, selectCar, buyUpgrade, activeMissions, commitRun, addWallet, claimDaily } from './meta.js';
+import { FIXED_STEP, consumeFixedSteps } from './sim.js';
+import { chooseTrafficSpawn } from './traffic.js';
 
 // The simulation is expressed in CSS pixels.  On phones it keeps the original
 // portrait composition; on desktop it becomes a real landscape canvas instead
@@ -17,6 +19,7 @@ let TRUCK_H = 184;
 let HORIZON = 96;
 let isDesktop = false;
 let sceneryReady = false;
+const MAX_TRAFFIC = 18, MAX_PICKUPS = 36, MAX_PARTICLES = 240, MAX_FLOATERS = 20, MAX_TRAIL = 90;
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -53,6 +56,8 @@ window.addEventListener('resize', resize); resize();
 let state = 'boot'; // boot -> menu -> playing -> gameover | garage
 let best = 0;
 let debug = new URLSearchParams(location.search).has('debug');
+const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+let userMuted = false;
 let dailyBonus = 0;      // shown on menu once per day
 let firstRun = true;     // contextual hint on first run
 let garageIdx = 0;       // car carousel index
@@ -88,6 +93,7 @@ const G = {
   time: 0,
   spawnT: 0,
   pickupT: 0,
+  markedCooldown: 0,
   nextHappy: 1000,
   roadScroll: 0,
   texScroll: 0,
@@ -110,13 +116,18 @@ function rnd(a, b) { return a + Math.random() * (b - a); }
 function speedKmh() { return Math.round(G.speed * 0.45); }
 
 function addFloater(x, y, text, color) {
-  G.floaters.push({ x, y, text, t: 1, color: color || '#fff' });
+  boundedPush(G.floaters, { x, y, text, t: 1, color: color || '#fff' }, MAX_FLOATERS);
+}
+
+function boundedPush(list, item, max) {
+  if (list.length >= max) list.splice(0, list.length - max + 1);
+  list.push(item);
 }
 
 function burst(x, y, color, n, spd) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, v = rnd(0.3, 1) * (spd || 260);
-    G.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 1, color, r: rnd(2, 5) });
+    boundedPush(G.particles, { x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 1, color, r: rnd(2, 5) }, MAX_PARTICLES);
   }
 }
 
@@ -133,7 +144,7 @@ function resetRun() {
   G.shake = 0; G.coinCombo = 0; G.coinComboT = 0;
   G.nmChain = 0; G.nmChainT = 0;
   G.runNearMisses = 0; G.runNitros = 0; G.runBestChain = 0;
-  G.time = 0; G.spawnT = 4.4; G.pickupT = 5.0; G.nextHappy = 1000;
+  G.time = 0; G.spawnT = 4.4; G.pickupT = 5.0; G.markedCooldown = 0; G.nextHappy = 1000;
   G.crashDone = false;
   G.crashing = false; G.slowmoT = 0; G.flash = 0;
   G.tilt = 0; G.fov = 1; G.texScroll = 0; G.railScroll = 0;
@@ -145,10 +156,10 @@ function resetRun() {
     { lane: 3, y: HORIZON - 86, rel: 0.73, color: '#ffb300', shape: 1 },
     { lane: 2, y: HORIZON - 244, rel: 0.78, color: '#00e5ff', shape: 6, marked: true },
   ];
-  for (const o of opening) G.obstacles.push({ ...o, h: CAR_H, truck: false, passed: false, intro: true });
+  for (const o of opening) boundedPush(G.obstacles, { ...o, lanePos: o.lane, h: CAR_H, truck: false, passed: false, intro: true, telegraph: !!o.marked }, MAX_TRAFFIC);
   // The reward line reaches the readable mid-road area in the opening moments
   // without dropping a pickup underneath the player at launch.
-  for (let i = 0; i < 5; i++) G.pickups.push({ lane: 1, y: HORIZON - 690 - i * 54, kind: 'coin', intro: true });
+  for (let i = 0; i < 5; i++) boundedPush(G.pickups, { lane: 1, y: HORIZON - 690 - i * 54, kind: 'coin', intro: true }, MAX_PICKUPS);
   runResult = null;
 }
 
@@ -160,14 +171,16 @@ function startGame() {
   gameplayStart();
 }
 
+function applyMute() { audio.setMuted(mutedBySettings || userMuted); }
+
 function debrisBurst(x, y, color) {
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * Math.PI * 2, v = rnd(120, 520);
-    G.particles.push({
+    boundedPush(G.particles, {
       x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, t: rnd(0.7, 1.3),
       color: i % 3 === 0 ? '#20242e' : color,
       r: 0, w: rnd(4, 13), h2: rnd(3, 8), rot: Math.random() * Math.PI, vr: rnd(-9, 9),
-    });
+    }, MAX_PARTICLES);
   }
 }
 
@@ -215,8 +228,8 @@ async function continueRun() {
   if (G.usedContinue || state !== 'gameover') return;
   const prevMute = mutedBySettings;
   const ok = await requestAd('rewarded', {
-    onStart: () => { audio.setMuted(true); },
-    onFinish: () => { audio.setMuted(prevMute); },
+    onStart: () => { setPaused('ad', true); audio.setMuted(true); },
+    onFinish: () => { audio.setMuted(prevMute || userMuted); setPaused('ad', false); },
   });
   if (ok) {
     G.usedContinue = true;
@@ -236,8 +249,8 @@ async function doubleCoins() {
   if (!runResult || runResult.doubled || state !== 'gameover') return;
   const prevMute = mutedBySettings;
   const ok = await requestAd('rewarded', {
-    onStart: () => { audio.setMuted(true); },
-    onFinish: () => { audio.setMuted(prevMute); },
+    onStart: () => { setPaused('ad', true); audio.setMuted(true); },
+    onFinish: () => { audio.setMuted(prevMute || userMuted); setPaused('ad', false); },
   });
   if (ok) {
     addWallet(runResult.earned);
@@ -248,36 +261,32 @@ async function doubleCoins() {
 }
 
 async function playAgain() {
-  const prevMute = mutedBySettings;
-  await requestAd('midgame', {
-    onStart: () => { audio.setMuted(true); },
-    onFinish: () => { audio.setMuted(prevMute); },
-  });
+  // Restart is immediate; any optional break belongs after a natural run end
+  // and must never hold the local one-more-try loop hostage.
   startGame();
 }
 
 // ---------- spawning ----------
 function spawnObstacle() {
-  // pick lanes that keep at least one lane passable in this "row"
+  if (G.obstacles.length >= MAX_TRAFFIC) return;
+  const plan = chooseTrafficSpawn({
+    random: Math.random, speed: G.speed || G.baseSpeed, handling: getCar().handling,
+    playerLane: G.lane, active: G.obstacles, lanes: LANES, horizon: HORIZON, playerY: PLAYER_Y,
+  });
+  if (!plan) return;
   const truck = Math.random() < 0.22;
   const h = truck ? TRUCK_H : CAR_H;
   const y = -h - 20;
-  // lanes blocked near spawn zone
-  const blocked = new Set();
-  for (const o of G.obstacles) if (o.y < 320) blocked.add(o.lane);
-  const free = [];
-  for (let i = 0; i < LANES; i++) if (!blocked.has(i)) free.push(i);
-  if (free.length <= 1) return; // always leave an escape lane
   // The opening is deliberately readable: traffic starts beside the player,
   // providing a safe early weave and a near-miss opportunity before density
   // rises.  Afterwards the original passable-lane rule takes over.
-  let lane;
-  if (G.time < 4) {
-    const opening = free.filter((l) => l !== G.lane);
-    lane = (opening.length ? opening : free)[Math.floor(Math.random() * (opening.length ? opening.length : free.length))];
-  } else lane = free[Math.floor(Math.random() * free.length)];
+  const lane = plan.lane;
   const rel = rnd(0.32, 0.5); // obstacle moves at rel * player speed (slower traffic)
-  G.obstacles.push({ lane, y, h, rel, truck, shape: Math.floor(Math.random() * 8), color: PALETTE[Math.floor(Math.random() * PALETTE.length)], passed: false });
+  const marked = G.time > 5 && G.markedCooldown <= 0 && !G.obstacles.some((o) => o.marked);
+  if (marked) G.markedCooldown = 5.5;
+  const targetLane = lane > 0 && Math.random() < 0.5 ? lane - 1 : lane < LANES - 1 ? lane + 1 : lane;
+  const signal = G.time > 14 && !marked && targetLane !== lane && Math.random() < 0.16;
+  boundedPush(G.obstacles, { lane, lanePos: lane, y, h, rel, truck, shape: Math.floor(Math.random() * 8), color: PALETTE[Math.floor(Math.random() * PALETTE.length)], passed: false, marked, telegraph: marked, reaction: plan.window, signal, targetLane, signalT: signal ? 1.0 : 0, changing: false, changeT: 0 }, MAX_TRAFFIC);
 }
 
 function spawnPickup() {
@@ -289,10 +298,10 @@ function spawnPickup() {
   const lane = free[Math.floor(Math.random() * free.length)];
   // Put the first boost in sight quickly so the player learns the nitro loop.
   if (G.time < 7 || Math.random() < 0.18) {
-    G.pickups.push({ lane, y: -40, kind: 'nitro' });
+    boundedPush(G.pickups, { lane, y: -40, kind: 'nitro' }, MAX_PICKUPS);
   } else {
     const n = 3 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < n; i++) G.pickups.push({ lane, y: -40 - i * 54, kind: 'coin' });
+    for (let i = 0; i < n; i++) boundedPush(G.pickups, { lane, y: -40 - i * 54, kind: 'coin' }, MAX_PICKUPS);
   }
 }
 
@@ -307,6 +316,7 @@ function update(dt) {
   }
   if (G.flash > 0) G.flash = Math.max(0, G.flash - dt * 2.5);
   G.time += dt;
+  G.markedCooldown = Math.max(0, G.markedCooldown - dt);
   // stars parallax always
   for (const s of stars) { s.y += s.s * 6 * dt; if (s.y > 90) { s.y = 0; s.x = Math.random() * W; } }
   if (G.shake > 0) G.shake = Math.max(0, G.shake - dt * 40);
@@ -325,7 +335,7 @@ function update(dt) {
   if (G.nitroT > 0) {
     G.nitroT -= dt;
     G.shake = Math.max(G.shake, 3);
-    G.nitroTrail.push({ x: G.playerX + rnd(-14, 14), y: PLAYER_Y + CAR_H / 2, t: 1 });
+    boundedPush(G.nitroTrail, { x: G.playerX + rnd(-14, 14), y: PLAYER_Y + CAR_H / 2, t: 1 }, MAX_TRAIL);
   }
   for (const f of G.nitroTrail) f.t -= dt * 2.2;
   G.nitroTrail = G.nitroTrail.filter(f => f.t > 0);
@@ -333,11 +343,11 @@ function update(dt) {
   G.fov += ((G.nitroT > 0 ? 1.055 : 1) - G.fov) * Math.min(1, dt * 5);
   // exhaust sparks under nitro
   if (G.nitroT > 0 && Math.random() < 0.85) {
-    G.particles.push({
+    boundedPush(G.particles, {
       x: G.playerX + rnd(-12, 12), y: PLAYER_Y + CAR_H / 2 + 4,
       vx: rnd(-90, 90), vy: rnd(180, 400), t: rnd(0.35, 0.8),
       color: Math.random() < 0.5 ? '#ffd76a' : '#ff9040', r: rnd(1.5, 3),
-    });
+    }, MAX_PARTICLES);
   }
 
   if (G.invulnT > 0) G.invulnT -= dt;
@@ -391,12 +401,23 @@ function update(dt) {
   // obstacles
   for (const o of G.obstacles) {
     o.y += G.speed * (1 - o.rel) * dt;
-    const ox = laneX(o.lane);
-    // near-miss: obstacle just passed the player vertically, adjacent lane, close horizontally
+    // Signal vehicles light an indicator before changing lanes. They only
+    // begin inside a readable mid-road window, never in the first safe intro.
+    if (o.signal && !o.changing && o.y > HORIZON + 36) {
+      o.signalT -= dt;
+      if (o.signalT <= 0) { o.changing = true; o.changeT = 0; }
+    }
+    if (o.changing) {
+      o.changeT = Math.min(1, o.changeT + dt / 0.7);
+      o.lanePos = o.lane + (o.targetLane - o.lane) * o.changeT;
+    }
+    const ox = laneX(o.lanePos == null ? o.lane : o.lanePos);
+    // Only telegraphed rivals grant close-pass chain credit. This makes the
+    // reward a visible choice instead of an accidental proximity bonus.
     if (!o.passed && o.y > PLAYER_Y + CAR_H / 2) {
       o.passed = true;
       const gap = Math.abs(ox - G.playerX) - (CAR_W); // gap between car edges
-      if (gap < Math.max(15, LANE_W * 0.58) && gap > -CAR_W * 0.5) {
+      if (o.marked && gap < Math.max(15, LANE_W * 0.58) && gap > -CAR_W * 0.5) {
         // chain: consecutive near misses within 3s build a rising multiplier
         G.nmChain++;
         G.nmChainT = 3;
@@ -420,7 +441,7 @@ function update(dt) {
       if (state !== 'playing') return;
     }
   }
-  G.obstacles = G.obstacles.filter(o => o.y < H + 250);
+  G.obstacles = G.obstacles.filter(o => o.y < H + 250).slice(-MAX_TRAFFIC);
 
   // pickups (coin magnet upgrade pulls coins toward the player)
   const magR = magnetRadius();
@@ -457,7 +478,7 @@ function update(dt) {
       }
     }
   }
-  G.pickups = G.pickups.filter(p => !p.taken && p.y < H + 60);
+  G.pickups = G.pickups.filter(p => !p.taken && p.y < H + 60).slice(-MAX_PICKUPS);
 }
 
 // ---------- drawing ----------
@@ -1004,11 +1025,11 @@ function drawRoad() {
 
 function drawGame() {
   ctx.save();
-  const shakeAmt = G.shake + Math.min(5, Math.max(0, (G.speed - 640) / 100));
+  const shakeAmt = (G.shake + Math.min(5, Math.max(0, (G.speed - 640) / 100))) * (reducedMotion ? 0.22 : 1);
   if (shakeAmt > 0) ctx.translate(rnd(-shakeAmt, shakeAmt) * 0.5, rnd(-shakeAmt, shakeAmt) * 0.5);
   // FOV-like widening under nitro
   const fov = G.fov || 1;
-  if (fov > 1.002) {
+  if (!reducedMotion && fov > 1.002) {
     ctx.translate(W / 2, H * 0.62);
     ctx.scale(fov, 1 + (fov - 1) * 0.35);
     ctx.translate(-W / 2, -H * 0.62);
@@ -1051,7 +1072,7 @@ function drawGame() {
     const yc = o.y + o.h / 2;
     if (yc + o.h / 2 < HORIZON) continue;
     const s = perspS(yc);
-    const x = perspX(laneX(o.lane), yc);
+    const x = perspX(laneX(o.lanePos == null ? o.lane : o.lanePos), yc);
     const streakL = Math.min(120, G.speed * (1 - o.rel) * 0.11);
     if (streakL > 16) {
       for (const lx of [-CAR_W * 0.28, CAR_W * 0.28]) {
@@ -1063,11 +1084,20 @@ function drawGame() {
       }
     }
     drawCarShape(x, yc, CAR_W * s, o.h * s, o.color, true, false, o.shape != null ? o.shape : 0, 0);
-    if (o.marked && G.time < 8) {
+    if (o.marked && !o.passed) {
       ctx.strokeStyle = '#ff2d78'; ctx.lineWidth = Math.max(1, 2 * s);
       ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 12;
       ctx.beginPath(); ctx.ellipse(x, yc, CAR_W * s * 0.82, o.h * s * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = '#ff8fb3'; ctx.font = '900 ' + Math.max(10, Math.round(15 * s)) + 'px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('PASS CLOSE +', x, o.y - 10 * s);
       ctx.shadowBlur = 0;
+    }
+    if (o.signal && !o.changing && o.y > HORIZON) {
+      const dir = o.targetLane > o.lane ? 1 : -1;
+      if (Math.floor(G.time * 5) % 2 === 0) {
+        ctx.fillStyle = '#ffb300'; ctx.shadowColor = '#ffb300'; ctx.shadowBlur = 9;
+        ctx.beginPath(); ctx.arc(x + dir * CAR_W * s * 0.55, yc, Math.max(2, 4 * s), 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+      }
     }
   }
 
@@ -1136,7 +1166,7 @@ function drawGame() {
   const spd = speedKmh();
   const slA = G.nitroT > 0 ? 0.9 : Math.max(0, Math.min(0.45, (spd - 250) / 400));
   if (slA > 0.05 && state === 'playing') {
-    const nLines = G.nitroT > 0 ? 26 : 14;
+    const nLines = reducedMotion ? 6 : (G.nitroT > 0 ? 26 : 14);
     for (let i = 0; i < nLines; i++) {
       const off = ((G.time * (760 + i * 83)) % (H + 260)) - 130;
       const edge = i % 2 === 0;
@@ -1149,7 +1179,7 @@ function drawGame() {
   }
   // chromatic-aberration-like edge fringe at 300+ km/h
   const ca = Math.max(0, Math.min(1, (spd - 300) / 170));
-  if (ca > 0 && state === 'playing') {
+  if (!reducedMotion && ca > 0 && state === 'playing') {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
     const gL = ctx.createLinearGradient(0, 0, 100, 0);
@@ -1302,6 +1332,13 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(255,255,255,0.68)'; ctx.font = 'bold 11px sans-serif';
     ctx.fillText('thread past the marked rival', W / 2, eventY + 35);
   }
+  const marked = G.obstacles.find((o) => o.marked && !o.passed && o.y > HORIZON && o.y < PLAYER_Y);
+  if (state === 'playing' && marked) {
+    ctx.fillStyle = 'rgba(19,8,35,0.84)'; ctx.strokeStyle = '#ff2d78'; ctx.lineWidth = 2;
+    roundRect(W / 2 - 112, 104, 224, 34, 9); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ffb4cc'; ctx.font = '900 13px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('MARKED RIVAL: PASS CLOSE', W / 2, 126);
+  }
   // A concise first-run callout makes the boost loop discoverable without
   // covering traffic.  It lives in a lower corner on landscape broadcast HUD.
   if (state === 'playing' && G.time < 8 && G.nitroT <= 0) {
@@ -1317,15 +1354,15 @@ function drawHUD() {
     ctx.globalAlpha = 1;
   }
   // near-miss chain with rising glow
-  if (G.nmChain > 1 && G.nmChainT > 0 && state === 'playing') {
+  if (G.nmChain > 0 && G.nmChainT > 0 && state === 'playing') {
     const gsz = 22 + Math.min(14, G.nmChain * 2.5);
     ctx.fillStyle = '#ff2d78';
     ctx.font = '900 ' + Math.round(gsz) + 'px sans-serif'; ctx.textAlign = 'center';
     ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 10 + G.nmChain * 4;
-    ctx.fillText('CHAIN x' + G.nmChain, W / 2, 130);
+    ctx.fillText('CHAIN x' + G.nmChain + ' · KEEP IT ALIVE', W / 2, marked ? 168 : 130);
     ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(255,45,120,0.75)';
-    ctx.fillRect(W / 2 - 60, 138, 120 * (G.nmChainT / 3), 5);
+    ctx.fillRect(W / 2 - 60, marked ? 176 : 138, 120 * (G.nmChainT / 3), 5);
   }
 }
 
@@ -1350,7 +1387,9 @@ function drawButton(id, x, y, w, h, label, color, sub) {
   ctx.restore();
 }
 function drawSmallButton(id, x, y, w, h, label, color, fs) {
-  buttons.push({ id, x, y, w, h });
+  // Compact desktop art still gets a 44px minimum mobile hit target.
+  const hitH = Math.max(44, h), hitW = Math.max(44, w);
+  buttons.push({ id, x: x - (hitW - w) / 2, y: y - (hitH - h) / 2, w: hitW, h: hitH });
   ctx.save();
   ctx.fillStyle = 'rgba(10,14,32,0.9)';
   ctx.strokeStyle = color; ctx.lineWidth = 2;
@@ -1403,6 +1442,7 @@ function drawMenu() {
   ctx.fillRect(0, 0, W, H);
   drawTitle(H * 0.2);
   drawWallet(W - 16, 40);
+  drawSmallButton('mute', W - 68, 72, 52, 44, (mutedBySettings || userMuted) ? '🔇' : '🔊', '#fff', 18);
   if (M.streak > 1) {
     ctx.fillStyle = '#ff6d00'; ctx.font = 'bold 17px sans-serif'; ctx.textAlign = 'right';
     ctx.fillText('\uD83D\uDD25 ' + M.streak + ' day streak', W - 16, 66);
@@ -1769,13 +1809,35 @@ function drawGameOver() {
   drawButton('garage', W / 2 - 100, by, 200, 56, 'GARAGE', '#ffb300');
 }
 
-// ---------- main loop ----------
-let last = performance.now();
+// ---------- lifecycle + fixed-step main loop ----------
+const pauseReasons = new Set();
+let suspended = false;
+function setPaused(reason, shouldPause) {
+  if (shouldPause) pauseReasons.add(reason); else pauseReasons.delete(reason);
+  const next = pauseReasons.size > 0;
+  if (next === suspended) return;
+  suspended = next;
+  if (suspended) {
+    audio.pauseAudio();
+    if (state === 'playing') gameplayStop();
+  } else {
+    audio.resumeAudio();
+    if (state === 'playing') gameplayStart();
+  }
+}
+document.addEventListener('visibilitychange', () => setPaused('hidden', document.hidden));
+window.addEventListener('blur', () => setPaused('blur', true));
+window.addEventListener('focus', () => setPaused('blur', false));
+
+let last = performance.now(), accumulator = 0;
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const dt = Math.min(0.12, (now - last) / 1000);
   last = now;
   buttons = [];
-  update(dt);
+  if (!suspended) {
+    const consumed = consumeFixedSteps(accumulator, dt, FIXED_STEP, update);
+    accumulator = consumed.accumulator;
+  }
   if (state === 'menu') drawMenu();
   else if (state === 'garage') drawGarage();
   else if (state === 'playing') { drawGame(); drawHUD(); }
@@ -1818,6 +1880,8 @@ function canvasPos(ev) {
 
 let touchStart = null;
 canvas.addEventListener('pointerdown', (ev) => {
+  if (ev.pointerType === 'touch') ev.preventDefault();
+  canvas.setPointerCapture?.(ev.pointerId);
   audio.unlockAudio();
   const p = canvasPos(ev);
   touchStart = { x: p.x, y: p.y, t: performance.now(), moved: false };
@@ -1829,6 +1893,7 @@ canvas.addEventListener('pointerdown', (ev) => {
       else if (b.id === 'continue') continueRun();
       else if (b.id === 'double') doubleCoins();
       else if (b.id === 'garage') { garageIdx = CARS.findIndex(c => c.id === M.selected); if (garageIdx < 0) garageIdx = 0; state = 'garage'; }
+      else if (b.id === 'mute') { userMuted = !userMuted; applyMute(); }
       else garageAction(b.id);
       touchStart = null;
       return;
@@ -1854,6 +1919,7 @@ canvas.addEventListener('pointerup', (ev) => {
   }
   touchStart = null;
 });
+canvas.addEventListener('pointercancel', () => { touchStart = null; });
 
 // ---------- boot ----------
 async function boot() {
@@ -1864,11 +1930,11 @@ async function boot() {
   firstRun = M.stats.runs === 0;
   dailyBonus = claimDaily();
   mutedBySettings = getMuteSetting();
-  audio.setMuted(mutedBySettings);
+  applyMute();
   onSettingsChange((s) => {
     if (s && typeof s.muteAudio === 'boolean') {
       mutedBySettings = s.muteAudio;
-      audio.setMuted(mutedBySettings);
+      applyMute();
     }
   });
   resetRun();
@@ -1881,6 +1947,12 @@ if (debug) {
   window.__astro = {
     forceGameOver: () => { if (state === 'playing') doCrash(); },
     nitro: () => { if (state === 'playing') { G.nitroMax = nitroDuration(); G.nitroT = G.nitroMax; } },
+    move: (dir) => moveLane(dir),
+    restart: () => startGame(),
+    advance: (seconds) => {
+      const steps = Math.min(30000, Math.round(seconds / FIXED_STEP));
+      for (let i = 0; i < steps && state === 'playing'; i++) update(FIXED_STEP);
+    },
     addScore: (n) => { G.dist += n; },
     grantCoins: (n) => { addWallet(n); },
     setStat: (k, v) => { M.stats[k] = v; },
@@ -1906,8 +1978,9 @@ if (debug) {
       shieldReady: G.shieldReady,
       runResult: runResult ? { earned: runResult.earned, doubled: runResult.doubled, missions: runResult.missions.map(m => m.id) } : null,
       trafficVisible: G.obstacles.filter(o => o.y + o.h > HORIZON && o.y < H).length,
-      obstacles: G.obstacles.map(o => ({ lane: o.lane, y: o.y, h: o.h })),
+      obstacles: G.obstacles.map(o => ({ lane: o.lane, lanePos: o.lanePos, y: o.y, h: o.h, marked: !!o.marked, signal: !!o.signal })),
       pickups: G.pickups.map(p => ({ lane: p.lane, y: p.y, kind: p.kind })),
+      debugCounts: { traffic: G.obstacles.length, pickups: G.pickups.length, particles: G.particles.length, trail: G.nitroTrail.length, floaters: G.floaters.length, listeners: 7 },
       buttons: buttons.map(b => ({ id: b.id, x: b.x, y: b.y, w: b.w, h: b.h })),
     }),
   };

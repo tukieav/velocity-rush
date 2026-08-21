@@ -62,9 +62,14 @@ export function loadMeta() {
   if (raw) {
     try {
       const p = JSON.parse(raw);
+      if (!p || typeof p !== 'object' || Array.isArray(p)) throw new Error('invalid meta shape');
       M = Object.assign(defaults(), p);
       M.upg = Object.assign(defaults().upg, p.upg || {});
       M.stats = Object.assign(defaults().stats, p.stats || {});
+      if (!Array.isArray(M.owned)) M.owned = ['viper'];
+      if (typeof M.wallet !== 'number' || !Number.isFinite(M.wallet) || M.wallet < 0) M.wallet = 0;
+      for (const key of Object.keys(M.upg)) M.upg[key] = Math.max(0, Math.min(UPGRADES[key].max, Number(M.upg[key]) || 0));
+      for (const key of Object.keys(M.stats)) M.stats[key] = Math.max(0, Number(M.stats[key]) || 0);
       if (!M.owned.includes('viper')) M.owned.push('viper');
       if (!M.owned.includes(M.selected)) M.selected = 'viper';
     } catch (e) { M = defaults(); }

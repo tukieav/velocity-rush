@@ -4,7 +4,11 @@ let inited = false;
 
 export async function initSDK() {
   try {
-    if (window.CrazyGames && window.CrazyGames.SDK) {
+    // The public SDK script is also present in local/Pages builds. Do not call
+    // its gameplay API there: it emits throttling/sitelock console errors that
+    // are irrelevant to the playable local fallback.
+    const onCrazyGames = /(^|\.)crazygames\.com$/i.test(location.hostname);
+    if (onCrazyGames && window.CrazyGames && window.CrazyGames.SDK) {
       // SDK.init() may hang forever on non-whitelisted domains (sitelock),
       // e.g. GitHub Pages — race it against a timeout so the game always boots.
       const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('sdk init timeout')), 3000));
