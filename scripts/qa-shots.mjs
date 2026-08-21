@@ -21,7 +21,7 @@ async function clickButton(id) {
     if (!b) return null;
     const c = document.getElementById('game');
     const r = c.getBoundingClientRect();
-    return { x: r.left + (b.x + b.w / 2) * (r.width / 540), y: r.top + (b.y + b.h / 2) * (r.height / 960) };
+    return { x: r.left + (b.x + b.w / 2) * (r.width / (s.width || 540)), y: r.top + (b.y + b.h / 2) * (r.height / (s.height || 960)) };
   }, id);
   if (!btn) throw new Error('button not found: ' + id);
   await page.mouse.click(btn.x, btn.y);
