@@ -36,7 +36,7 @@ const btn = await page.evaluate(() => {
   const b = s.buttons.find((x) => x.id === 'play');
   const c = document.getElementById('game');
   const r = c.getBoundingClientRect();
-  return { x: r.left + (b.x + b.w / 2) * (r.width / 540), y: r.top + (b.y + b.h / 2) * (r.height / 960) };
+  return { x: r.left + (b.x + b.w / 2) * (r.width / (s.width || 540)), y: r.top + (b.y + b.h / 2) * (r.height / (s.height || 960)) };
 });
 await page.mouse.click(btn.x, btn.y);
 await page.waitForFunction(() => window.__astro.getState().state === 'playing', null, { timeout: 5000 });

@@ -8,13 +8,14 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.argv[2] || 'landscape';
 const size = mode === 'portrait' ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
 const dir = join(root, 'marketing', 'vid-' + mode);
+const url = process.env.URL || 'http://localhost:8523/?debug=1';
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
 
 async function attempt() {
   const ctx = await browser.newContext({ viewport: size, recordVideo: { dir, size } });
   const page = await ctx.newPage();
-  await page.goto('http://localhost:8523/?debug=1');
+  await page.goto(url);
   await page.waitForFunction(() => window.__astro && window.__astro.getState().state === 'menu', null, { timeout: 15000 });
   await page.waitForTimeout(800);
   // click PLAY
@@ -23,7 +24,7 @@ async function attempt() {
     const b = s.buttons.find((x) => x.id === 'play');
     const c = document.getElementById('game');
     const r = c.getBoundingClientRect();
-    return { x: r.left + (b.x + b.w / 2) * (r.width / 540), y: r.top + (b.y + b.h / 2) * (r.height / 960) };
+    return { x: r.left + (b.x + b.w / 2) * (r.width / (s.width || 540)), y: r.top + (b.y + b.h / 2) * (r.height / (s.height || 960)) };
   });
   await page.mouse.click(btn.x, btn.y);
   await page.waitForFunction(() => window.__astro.getState().state === 'playing', null, { timeout: 5000 });
