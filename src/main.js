@@ -1417,30 +1417,32 @@ function drawWallet(x, y) {
   ctx.shadowBlur = 0;
 }
 
-function drawTitle(yc) {
+function drawTitle(yc, compact = false) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const tg = ctx.createLinearGradient(0, yc - 36, 0, yc + 36);
   tg.addColorStop(0, '#ffffff'); tg.addColorStop(0.5, '#ffd1e6'); tg.addColorStop(1, '#ff2d78');
   ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 34;
   ctx.fillStyle = tg;
-  ctx.font = '900 64px sans-serif';
+  const titleSize = compact ? 46 : 64, rushOffset = compact ? 52 : 70;
+  ctx.font = '900 ' + titleSize + 'px sans-serif';
   ctx.fillText('VELOCITY', W / 2, yc);
   const tg2 = ctx.createLinearGradient(0, yc + 34, 0, yc + 106);
   tg2.addColorStop(0, '#ffffff'); tg2.addColorStop(0.5, '#c9f6ff'); tg2.addColorStop(1, '#00e5ff');
   ctx.shadowColor = '#00e5ff';
   ctx.fillStyle = tg2;
-  ctx.fillText('RUSH', W / 2, yc + 70);
+  ctx.fillText('RUSH', W / 2, yc + rushOffset);
   ctx.shadowBlur = 0;
   // scanline accent under the title
   ctx.fillStyle = 'rgba(0,229,255,0.5)';
-  ctx.fillRect(W / 2 - 130, yc + 112, 260, 2);
+  ctx.fillRect(W / 2 - 130, yc + rushOffset + 42, 260, 2);
 }
 
 function drawMenu() {
+  const compact = isDesktop && H < 620;
   drawGame();
   ctx.fillStyle = 'rgba(4,6,16,0.55)';
   ctx.fillRect(0, 0, W, H);
-  drawTitle(H * 0.2);
+  drawTitle(H * (compact ? 0.16 : 0.2), compact);
   drawWallet(W - 16, 40);
   drawSmallButton('mute', W - 68, 72, 52, 44, (mutedBySettings || userMuted) ? '🔇' : '🔊', '#fff', 18);
   if (M.streak > 1) {
@@ -1449,27 +1451,28 @@ function drawMenu() {
   }
   ctx.fillStyle = 'rgba(255,255,255,0.8)';
   ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText('Neon endless racer — dodge the traffic!', W / 2, H * 0.34);
+  ctx.fillText('Neon endless racer — dodge the traffic!', W / 2, H * (compact ? 0.32 : 0.34));
   if (dailyBonus > 0) {
     ctx.fillStyle = '#76ff03'; ctx.font = 'bold 22px sans-serif';
     ctx.shadowColor = '#76ff03'; ctx.shadowBlur = 10;
-    ctx.fillText('DAILY BONUS +$' + dailyBonus + '  (streak ' + M.streak + ')', W / 2, H * 0.395);
+    ctx.fillText('DAILY BONUS +$' + dailyBonus + '  (streak ' + M.streak + ')', W / 2, H * (compact ? 0.375 : 0.395));
     ctx.shadowBlur = 0;
   }
-  drawButton('play', W / 2 - 120, H * 0.44, 240, 76, 'PLAY', '#00ffc8');
-  drawButton('garage', W / 2 - 120, H * 0.44 + 96, 240, 64, 'GARAGE', '#ffb300', CARS.filter(c => M.owned.includes(c.id)).length + '/' + CARS.length + ' cars');
+  const playY = H * (compact ? 0.43 : 0.44), playH = compact ? 62 : 76, garageH = compact ? 52 : 64;
+  drawButton('play', W / 2 - 120, playY, 240, playH, 'PLAY', '#00ffc8');
+  drawButton('garage', W / 2 - 120, playY + playH + (compact ? 12 : 20), 240, garageH, 'GARAGE', '#ffb300', CARS.filter(c => M.owned.includes(c.id)).length + '/' + CARS.length + ' cars');
   // next mission teaser
   const am = activeMissions();
   if (am.length) {
     const m = am[0];
     const prog = Math.min(1, (M.stats[m.stat] || 0) / m.goal);
     ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = '16px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('MISSION: ' + m.name + '  (' + Math.floor(prog * 100) + '%)', W / 2, H * 0.68);
+    ctx.fillText('MISSION: ' + m.name + '  (' + Math.floor(prog * 100) + '%)', W / 2, H * (compact ? 0.79 : 0.68));
   }
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.font = '17px sans-serif';
-  ctx.fillText('\u2190 \u2192 / A D — change lane  ·  swipe on mobile', W / 2, H * 0.73);
-  ctx.fillText('Grab $ coins & NITRO, thread the gaps!', W / 2, H * 0.765);
+  ctx.fillText('\u2190 \u2192 / A D — change lane  ·  swipe on mobile', W / 2, H * (compact ? 0.86 : 0.73));
+  ctx.fillText('Grab $ coins & NITRO, thread the gaps!', W / 2, H * (compact ? 0.91 : 0.765));
   if (best > 0) {
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 22px sans-serif';
     ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.82);
@@ -1628,7 +1631,39 @@ function drawGarageDesktop() {
   drawButton('back', gc - 100, H - 82, 200, 58, 'BACK', '#00ffc8');
 }
 
+function drawGarageCompact() {
+  drawGarageWorkshop();
+  const car = CARS[garageIdx], gc = W / 2;
+  const owned = M.owned.includes(car.id), selected = M.selected === car.id;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffb300'; ctx.font = '900 30px sans-serif'; ctx.fillText('GARAGE', gc, 32);
+  drawWallet(W - 18, 32);
+  drawSmallButton('prevCar', gc - 148, 74, 58, 44, '←', '#fff', 24);
+  drawSmallButton('nextCar', gc + 90, 74, 58, 44, '→', '#fff', 24);
+  drawCarShape(gc, 128, 68, 116, car.color, true, true, car.shape);
+  ctx.fillStyle = car.color; ctx.font = '900 24px sans-serif'; ctx.fillText(car.name, gc, 205);
+  const stats = [['HANDLING', (car.handling - 8) / 8], ['NITRO', car.nitro / 5], ['COINS', (car.coinMul - .75) / 1.5]];
+  stats.forEach(([label, value], index) => {
+    const x = 24 + index * ((W - 48) / 3), w = (W - 64) / 3, y = 232;
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(label, x, y);
+    ctx.fillStyle = 'rgba(255,255,255,.15)'; ctx.fillRect(x, y + 12, w, 8);
+    ctx.fillStyle = car.color; ctx.fillRect(x, y + 12, w * Math.max(.08, Math.min(1, value)), 8);
+  });
+  if (selected) { ctx.textAlign = 'center'; ctx.fillStyle = '#00ffc8'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('✓ SELECTED', gc, 278); }
+  else if (owned) drawSmallButton('selectCar', gc - 90, 258, 180, 44, 'SELECT', '#00ffc8', 19);
+  else drawSmallButton('buyCar', gc - 110, 258, 220, 44, 'BUY  $' + car.cost, M.wallet >= car.cost ? '#ffd700' : '#666', 19);
+  ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.82)'; ctx.font = 'bold 14px sans-serif'; ctx.fillText('UPGRADES', gc, 322);
+  Object.keys(UPGRADES).forEach((key, index) => {
+    const u = UPGRADES[key], level = M.upg[key], x = 26 + index * ((W - 52) / 3), w = (W - 66) / 3;
+    const label = level >= u.max ? u.name + ' MAX' : u.name + '  $' + u.costs[level];
+    drawSmallButton('upg_' + key, x, 336, w, 44, label, level < u.max && M.wallet >= u.costs[level] ? '#ffd700' : '#666', 12);
+  });
+  drawButton('back', gc - 100, H - 58, 200, 44, 'BACK', '#00ffc8');
+}
+
 function drawGarage() {
+  if (isDesktop && H < 760) { drawGarageCompact(); return; }
+  if (!isDesktop && W < 540) { drawGarageCompact(); return; }
   if (isDesktop) { drawGarageDesktop(); return; }
   drawGarageWorkshop();
   const gc = W / 2;

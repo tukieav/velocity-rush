@@ -1,76 +1,80 @@
 # Velocity Rush — CrazyGames Submission Kit
 
-Wszystko poniżej wklejasz w formularz na https://developer.crazygames.com/
-
 ## Game name
+
 Velocity Rush
 
-## Category
-Racing (secondary: Casual / Arcade)
+## Category and discovery paths
 
-## Tags
-racing, endless, neon, cars, dodge, highway, nitro, one-hand, arcade, high-score
+- Primary category: **Driving**
+- Primary category path: `/c/driving`
+- Secondary discovery: **Arcade**
+- Verified tags: **Car, Traffic, Racing, Mobile, Skill, 2D**
 
-## Short description (max ~140 chars)
-Weave through neon night traffic at insane speed! Grab nitro, thread near-misses and chase your best distance in this endless racer.
+## Short description (160 characters)
+
+Thread a neon supercar through night traffic, chain close calls, collect coins,
+and unleash nitro on an endless highway.
 
 ## Full description
-Velocity Rush is a fast, glowing endless lane racer. Pilot your neon car down a
-4-lane night highway, weaving through slower traffic that gets denser and faster
-the further you go. One crash ends the run — how far can you push it?
 
-FEATURES
-- Pure speed: the highway keeps accelerating the longer you survive
-- NITRO pickups: 1.6x boost with flame trails and screen shake
-- Near-miss CHAIN: consecutive close calls within 3s build a rising bonus multiplier
-- Coin combos: chain pickups for multiplied coins
-- GARAGE: 8 unlockable neon cars with unique handling, nitro duration and coin multiplier stats
-- Permanent upgrades: nitro time +20%/level, coin magnet, crash shield (1 save per run)
-- 14 missions (total distance, near-miss counts, chain goals…) with coin rewards
-- Daily login streak bonus (up to 7x)
-- Persistent coin wallet & progress saved across devices (SDK data module)
-- Neon night visuals: glowing cars, light streaks, city vibes — all procedural
-- Instant restarts, "one more try" loop under 30 seconds
-- Mouse/keyboard AND touch: swipe or tap to change lanes
-- Best distance saved across devices
+Race into a living synthwave city where every lane decision matters. Dodge
+traffic, follow coin lines, and pass clearly marked rivals at close range to
+build a near-miss chain without losing control. Nitro creates short windows of
+extreme speed and score potential.
 
-HOW TO PLAY
-1. Press PLAY and start rolling
-2. Arrow keys / A-D change lanes (swipe or tap halves on mobile)
-3. Dodge cars and trucks — trucks are twice as long!
-4. Grab $ coins and NITRO bolts
-5. Crash? Watch an ad to CONTINUE right where you died (once per run)
+Bank coins between runs, unlock a garage of distinct cars, and improve
+handling, nitro duration, coin magnet range, and crash protection. Missions,
+daily rewards, and persistent records give every run a purpose beyond distance
+alone.
 
-## Controls text
-Left/Right arrows or A/D — change lane. Mobile: swipe left/right or tap screen halves.
+## Current features
 
-## SDK integration notes (QA reviewer info)
-- HTML5 SDK v3, manual init before game start (with 3s timeout fallback)
-- gameplayStart/gameplayStop on play/game over/ad breaks
-- loadingStart/loadingStop around boot
-- Midgame ad on "Play Again" after game over
-- Rewarded ad "CONTINUE" (revive at crash spot with 2s invulnerability, once per run)
-- Rewarded ad "DOUBLE" (x2 coins earned in the run, on game-over screen)
-- happytime() on 1000 m milestones, mission completions, car/upgrade purchases (client-side throttled)
-- game.settings.muteAudio respected + settings change listener
-- Best score AND full meta-progression (wallet, cars, upgrades, missions, streak) via data module with localStorage fallback
-- No external requests, all assets procedural (Canvas 2D + WebAudio), bundle ~17 KB
-- Touch + mouse + keyboard; portrait-friendly, works on low-end devices
-- Live demo: https://tukieav.github.io/velocity-rush/
+- Fair traffic director: speed and handling determine a guaranteed reaction
+  window; it preserves a reachable lane and prevents all-lane walls.
+- Marked-rival close-pass chain with a visible decay meter, plus signalled
+  lane-changing traffic after the safe opening.
+- Eight cars, permanent upgrades, missions, daily rewards, and persistent
+  wallet/best-score progression.
+- Instant local Play Again restart; optional rewarded continue/double-coin ads
+  appear only on the natural game-over screen.
+- Canvas 2D synthwave city, readable telegraphs, reduced-motion adaptation,
+  mute control, keyboard/mouse/touch input, and mobile swipe lane control.
 
-## Files to upload
-- Build: dist/index.html + dist/bundle.js (or velocity-rush.zip contents)
-- Cover 16:9 (1920x1080): marketing/cover-16x9.png
-- Cover 1:1 (1080x1080): marketing/cover-1x1.png
-- Cover 2:3 (800x1200): marketing/cover-2x3.png
-- Screenshots: marketing/screenshot-menu.png, marketing/screenshot-gameplay.png
-- Videos: marketing/video-landscape.mp4 (1280x720), marketing/video-portrait.mp4 (720x1280)
+## Controls
 
-## Submission form answers
-- "Does your game save progress?" -> "Yes, using the Data Module from the CrazyGames SDK"
-- [x] supports mobile devices
-- [x] supports CrazyGames muting audio through SDK
-- [ ] online multiplayer (NO)
+- Desktop: Left/Right arrows or A/D change lanes; mouse click on a screen half
+  also changes lane.
+- Mobile: Swipe left/right to change lanes, or tap the left/right half of the
+  screen. All mobile controls have at least a 44 CSS px hit target.
 
-## Age rating / audience
-All ages; designed for 10–16. No violence, no blood, no text chat, no user content.
+## SDK, save, and ad behavior
+
+- CrazyGames HTML5 SDK v3 initializes only in the CrazyGames host, with a
+  three-second safe fallback for local builds.
+- `loadingStart`/`loadingStop` surround boot; `gameplayStart`/`gameplayStop`
+  follow active gameplay boundaries. Visibility, blur, and ads pause
+  simulation/input/audio and resume once.
+- CrazyGames mute settings are observed; players also have an in-game mute
+  toggle. `happytime` is throttled.
+- Best score and progression use the Data Module with a safe localStorage
+  fallback and malformed/old-save recovery.
+- Rewarded ads are optional for one continue or doubling a completed run's
+  coins. No ad is mandatory for play or restart.
+
+## Rating, live URL, and resubmission note
+
+- PEGI 12 appropriate: stylized vehicle crashes only; no blood, gore, chat,
+  user content, or gambling.
+- Live URL: https://tukieav.github.io/velocity-rush/
+- Quality resubmission: refreshed after traffic-fairness, lifecycle,
+  fixed-timestep, accessibility, viewport, and soak hardening. The local
+  fallback intentionally runs without CrazyGames SDK calls outside the portal.
+
+## Upload files
+
+- Build: `dist/index.html` + `dist/bundle.js` (or `velocity-rush.zip`)
+- Covers: `marketing/cover-16x9.png`, `marketing/cover-1x1.png`,
+  `marketing/cover-2x3.png`
+- Screenshots: `marketing/screenshot-menu.png`, `marketing/screenshot-gameplay.png`
+- Videos: `marketing/video-landscape.mp4`, `marketing/video-portrait.mp4`
