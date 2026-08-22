@@ -51,6 +51,7 @@ function defaults() {
     missionsDone: 0, // how many missions completed (active = next 3)
     streak: 0,
     lastDay: '',
+    controlHintSeen: false,
   };
 }
 
@@ -66,6 +67,7 @@ export function loadMeta() {
       M = Object.assign(defaults(), p);
       M.upg = Object.assign(defaults().upg, p.upg || {});
       M.stats = Object.assign(defaults().stats, p.stats || {});
+      M.controlHintSeen = p.controlHintSeen === true;
       if (!Array.isArray(M.owned)) M.owned = ['viper'];
       if (typeof M.wallet !== 'number' || !Number.isFinite(M.wallet) || M.wallet < 0) M.wallet = 0;
       for (const key of Object.keys(M.upg)) M.upg[key] = Math.max(0, Math.min(UPGRADES[key].max, Number(M.upg[key]) || 0));
@@ -161,6 +163,15 @@ export function commitRun({ dist, coins, nearMisses, nitros, bestChain }) {
 }
 
 export function addWallet(n) { M.wallet += n; saveMeta(); }
+
+// The first-run control card is deliberately stored with the rest of the
+// player profile: it should disappear as soon as the player demonstrates a
+// control, and never reappear on a later visit with the same save.
+export function markControlHintSeen() {
+  if (M.controlHintSeen) return;
+  M.controlHintSeen = true;
+  saveMeta();
+}
 
 // Daily streak: call once at boot. Returns bonus coins granted today (0 if already claimed).
 export function claimDaily(now = new Date()) {

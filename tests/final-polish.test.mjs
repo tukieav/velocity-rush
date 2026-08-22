@@ -34,5 +34,7 @@ await page.keyboard.press('Enter');
 const garageState = await page.evaluate(() => window.__astro.getState());
 assert.equal(garageState.selected, 'comet');
 assert.ok(garageState.owned.includes('comet'));
+await page.keyboard.press('Backspace');
+assert.equal(await page.evaluate(() => window.__astro.getState().state), 'menu', 'garage has a Backspace alternative to Escape');
 await browser.close();
 console.log('FINAL POLISH PASSED: landscape close call, nitro gauge, keyboard garage');
