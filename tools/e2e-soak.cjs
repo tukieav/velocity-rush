@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const assert = require('assert');
 const URL = process.env.URL || 'http://localhost:8523/?debug=1';
+const SECONDS = Number(process.env.SOAK_SECONDS || 120);
 (async () => {
   const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
@@ -9,7 +10,7 @@ const URL = process.env.URL || 'http://localhost:8523/?debug=1';
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.goto(URL); await page.waitForFunction(() => window.__astro?.getState().state === 'menu');
   await page.evaluate(() => window.__astro.restart());
-  for (let second = 0; second < 120; second++) {
+  for (let second = 0; second < SECONDS; second++) {
     await page.evaluate((tick) => {
       const s = window.__astro.getState();
       const threat = s.obstacles.find(o => o.lane === s.lane && o.y + o.h > s.playerY - 260 && o.y < s.playerY + 50);
@@ -27,5 +28,5 @@ const URL = process.env.URL || 'http://localhost:8523/?debug=1';
   assert(fps >= 20, `render health too low: ${fps}`);
   await browser.close();
   assert.deepEqual(errors, [], errors.join('\n'));
-  console.log(`SOAK PASSED: accelerated 120s, restarts, bounded pools, ${fps.toFixed(1)} FPS`);
+  console.log(`SOAK PASSED: accelerated ${SECONDS}s, restarts, bounded pools, ${fps.toFixed(1)} FPS`);
 })().catch(e => { console.error(e.stack || e); process.exit(1); });
