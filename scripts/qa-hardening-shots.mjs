@@ -3,7 +3,7 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
 const URL = process.env.URL || 'http://localhost:8523/?debug=1';
-const OUT = 'qa/hardening';
+const OUT = process.env.OUT || 'qa/hardening';
 const sizes = [[907,510], [1280,720], [1920,1080], [390,844]];
 mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });

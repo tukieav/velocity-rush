@@ -1,77 +1,76 @@
-// Record preview videos (landscape 1280x720, portrait 720x1280)
+// Record a clean gameplay reel, then prepend the matching cover for the
+// CrazyGames-required opening hold. Usage: node scripts/record-video.mjs
+// landscape|portrait. The final files are 1920x1080 and 800x1200 (2:3).
 import { chromium } from 'playwright';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readdirSync, renameSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.argv[2] || 'landscape';
-const size = mode === 'portrait' ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
-const dir = join(root, 'marketing', 'vid-' + mode);
-const url = process.env.URL || 'http://localhost:8523/?debug=1';
+const config = {
+  landscape: { size: { width: 1920, height: 1080 }, cover: 'cover-16x9.png', output: 'video-landscape.mp4' },
+  portrait: { size: { width: 800, height: 1200 }, cover: 'cover-2x3.png', output: 'video-portrait.mp4' },
+}[mode];
+if (!config) throw new Error('mode must be landscape or portrait');
 
+const url = process.env.URL || 'http://localhost:8523/?debug=1';
+const scratch = mkdtempSync(join(tmpdir(), 'velocity-rush-video-'));
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
 
-async function attempt() {
-  const ctx = await browser.newContext({ viewport: size, recordVideo: { dir, size } });
-  const page = await ctx.newPage();
-  await page.goto(url);
-  await page.waitForFunction(() => window.__astro && window.__astro.getState().state === 'menu', null, { timeout: 15000 });
-  await page.waitForTimeout(800);
-  // click PLAY
-  const btn = await page.evaluate(() => {
+async function recordAttempt() {
+  const context = await browser.newContext({ viewport: config.size, recordVideo: { dir: scratch, size: config.size } });
+  const page = await context.newPage();
+  const video = page.video();
+  await page.goto(url, { waitUntil: 'load' });
+  await page.waitForFunction(() => window.__astro?.getState().state === 'menu', null, { timeout: 15000 });
+  const play = await page.evaluate(() => {
     const s = window.__astro.getState();
     const b = s.buttons.find((x) => x.id === 'play');
-    const c = document.getElementById('game');
-    const r = c.getBoundingClientRect();
-    return { x: r.left + (b.x + b.w / 2) * (r.width / (s.width || 540)), y: r.top + (b.y + b.h / 2) * (r.height / (s.height || 960)) };
+    const r = document.getElementById('game').getBoundingClientRect();
+    return { x: r.left + (b.x + b.w / 2) * (r.width / s.width), y: r.top + (b.y + b.h / 2) * (r.height / s.height) };
   });
-  await page.mouse.click(btn.x, btn.y);
+  await page.mouse.click(play.x, play.y);
   await page.waitForFunction(() => window.__astro.getState().state === 'playing', null, { timeout: 5000 });
-  const t0 = Date.now();
-  let survived = 0;
-  while (Date.now() - t0 < 16500) {
+  // A real early steer removes the first-run control card before the trimmed
+  // gameplay starts, leaving a clean in-motion reel after the cover hold.
+  await page.keyboard.press('ArrowRight');
+  const started = Date.now();
+  let survived = true;
+  while (Date.now() - started < 17100) {
     const s = await page.evaluate(() => window.__astro.getState());
-    if (s.state !== 'playing') break;
-    survived = Date.now() - t0;
-    const threat = s.obstacles.find((o) => o.lane === s.lane && o.y + o.h > s.playerY - 340 && o.y < s.playerY + 50);
+    if (s.state !== 'playing') { survived = false; break; }
+    const threat = s.obstacles.find((o) => o.lane === s.lane && o.y + o.h > s.playerY - 360 && o.y < s.playerY + 70);
     if (threat) {
-      const danger = (l) => s.obstacles.some((o) => o.lane === l && o.y + o.h > s.playerY - 360 && o.y < s.playerY + 60);
-      const opts = [s.lane - 1, s.lane + 1].filter((l) => l >= 0 && l <= 3 && !danger(l));
-      if (opts.length) {
-        // prefer lane with pickups
-        let pick = opts[0];
-        for (const l of opts) if (s.pickups.some((p) => p.lane === l && p.y > s.playerY - 400 && p.y < s.playerY)) pick = l;
-        await page.keyboard.press(pick < s.lane ? 'ArrowLeft' : 'ArrowRight');
-      }
-    } else {
-      // opportunistic pickup grab if safe
-      const near = s.pickups.find((p) => Math.abs(p.lane - s.lane) === 1 && p.y > s.playerY - 380 && p.y < s.playerY - 80);
-      if (near) {
-        const danger = s.obstacles.some((o) => o.lane === near.lane && o.y + o.h > s.playerY - 380 && o.y < s.playerY + 60);
-        if (!danger) await page.keyboard.press(near.lane < s.lane ? 'ArrowLeft' : 'ArrowRight');
-      }
+      const safe = [s.lane - 1, s.lane + 1].filter((lane) => lane >= 0 && lane < 4 && !s.obstacles.some((o) => o.lane === lane && o.y + o.h > s.playerY - 410 && o.y < s.playerY + 90));
+      if (safe.length) await page.keyboard.press(safe[0] < s.lane ? 'ArrowLeft' : 'ArrowRight');
     }
-    await page.waitForTimeout(80);
+    await page.waitForTimeout(65);
   }
-  const fin = await page.evaluate(() => window.__astro.getState());
-  await ctx.close();
-  console.log(mode, 'attempt survived', (survived / 1000).toFixed(1) + 's, final state', fin.state, 'score', fin.score);
-  return survived;
+  const final = await page.evaluate(() => window.__astro.getState().state);
+  await context.close();
+  return { survived: survived && final === 'playing', raw: await video.path() };
 }
 
-let ok = false;
-for (let i = 0; i < 5 && !ok; i++) {
-  const s = await attempt();
-  if (s >= 13000) ok = true;
-  else {
-    // remove failed video
-    for (const f of readdirSync(dir)) if (f.endsWith('.webm')) renameSync(join(dir, f), join(dir, 'failed-' + i + '.webm'));
-  }
+let raw;
+for (let attempt = 1; attempt <= 5 && !raw; attempt++) {
+  const result = await recordAttempt();
+  console.log(`${mode} attempt ${attempt}: ${result.survived ? 'clean gameplay' : 'rejected after crash'}`);
+  if (result.survived) raw = result.raw;
 }
 await browser.close();
-if (!ok) { console.error('FAILED: bot never survived 13s'); process.exit(1); }
-// newest webm is the good one
-const files = readdirSync(dir).filter((f) => f.endsWith('.webm') && !f.startsWith('failed'));
-console.log('good video:', files[files.length - 1]);
-renameSync(join(dir, files[files.length - 1]), join(dir, 'raw.webm'));
+if (!raw) { rmSync(scratch, { recursive: true, force: true }); throw new Error('could not record a clean 15-second gameplay reel'); }
+
+const output = join(root, 'marketing', config.output);
+execFileSync('ffmpeg', [
+  '-y', '-loop', '1', '-framerate', '30', '-t', '0.7', '-i', join(root, 'marketing', config.cover),
+  // Remove navigation/menu lead-in. The recorded run is deliberately longer
+  // than the 15-second gameplay segment that follows.
+  '-ss', '2.2', '-t', '15', '-i', raw,
+  '-filter_complex', `[0:v]fps=30,scale=${config.size.width}:${config.size.height},format=yuv420p[cover];[1:v]fps=30,scale=${config.size.width}:${config.size.height},format=yuv420p[game];[cover][game]concat=n=2:v=1:a=0[v]`,
+  '-map', '[v]', '-an', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-movflags', '+faststart', output,
+], { stdio: 'inherit' });
+rmSync(scratch, { recursive: true, force: true });
+console.log('wrote', output);

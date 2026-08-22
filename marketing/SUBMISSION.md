@@ -18,15 +18,23 @@ and unleash nitro on an endless highway.
 
 ## Full description
 
-Race into a living synthwave city where every lane decision matters. Dodge
-traffic, follow coin lines, and pass clearly marked rivals at close range to
-build a near-miss chain without losing control. Nitro creates short windows of
-extreme speed and score potential.
+Thread a neon car through night traffic: take the safe lane, collect coin
+lines, and choose when a marked rival is close enough for a near-miss bonus.
 
-Bank coins between runs, unlock a garage of distinct cars, and improve
-handling, nitro duration, coin magnet range, and crash protection. Missions,
-daily rewards, and persistent records give every run a purpose beyond distance
-alone.
+The core loop is a short, replayable score chase. Traffic keeps a reachable
+lane, marked rivals show their close-pass opportunity, and lane-changing cars
+signal before moving. Nitro pickups create a brief speed burst; coin streaks,
+near-miss chains, speed feedback, and the visible chain timer make the risks
+readable rather than random. A shield upgrade can absorb one crash per run.
+
+Coins bank between runs. Spend them on eight cars with different handling,
+nitro duration, and coin multipliers, then improve nitro time, coin magnet
+range, and crash protection. Missions, a daily reward, best distance, and a
+persistent wallet give each few-minute run a clear next goal.
+
+Desktop controls: Left/Right arrows or physical WASD/ZQSD keys steer. Mobile
+controls: swipe left/right or tap a screen half. The first run shows a small
+visual control card and dismisses it after the first successful steer.
 
 ## Current features
 
@@ -43,8 +51,8 @@ alone.
 
 ## Controls
 
-- Desktop: Left/Right arrows or A/D change lanes; mouse click on a screen half
-  also changes lane.
+- Desktop: Left/Right arrows or physical WASD/ZQSD keys change lanes; mouse
+  click on a screen half also changes lane.
 - Mobile: Swipe left/right to change lanes, or tap the left/right half of the
   screen. All mobile controls have at least a 44 CSS px hit target.
 

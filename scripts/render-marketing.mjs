@@ -20,7 +20,7 @@ async function shot(url, w, h, out) {
 }
 
 await shot(coverPath + '?w=1920&h=1080', 1920, 1080, 'cover-16x9.png');
-await shot(coverPath + '?w=1080&h=1080&sq=1', 1080, 1080, 'cover-1x1.png');
+await shot(coverPath + '?w=800&h=800&sq=1', 800, 800, 'cover-1x1.png');
 await shot(coverPath + '?w=800&h=1200&sq=1', 800, 1200, 'cover-2x3.png');
 
 // gameplay screenshots from live game (menu + mid-run)
