@@ -1191,6 +1191,15 @@ function drawGame() {
     ctx.fillStyle = gR; ctx.fillRect(W - 100, 0, 100, H);
     ctx.restore();
   }
+  // Nitro has a distinct cyan edge vignette in addition to the speed lines:
+  // this keeps the boost readable in a single still frame as well as in motion.
+  if (G.nitroT > 0 && state === 'playing' && !reducedMotion) {
+    const nitroVignette = ctx.createRadialGradient(W / 2, H * 0.56, H * 0.18, W / 2, H * 0.56, Math.max(W, H) * 0.72);
+    nitroVignette.addColorStop(0, 'rgba(0,229,255,0)');
+    nitroVignette.addColorStop(0.68, 'rgba(0,229,255,0.02)');
+    nitroVignette.addColorStop(1, 'rgba(0,229,255,0.24)');
+    ctx.fillStyle = nitroVignette; ctx.fillRect(-40, -40, W + 80, H + 80);
+  }
   // subtle vignette
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.78);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.34)');
@@ -1364,7 +1373,7 @@ function drawControlOnboarding() {
   const compact = W < 540;
   const x = W / 2, y = H * (compact ? 0.57 : 0.59);
   const keyW = compact ? 42 : 52, keyH = compact ? 34 : 42, gap = compact ? 5 : 7;
-  const topY = y - keyH - gap / 2, bottomY = y + gap / 2;
+  const topY = y - keyH - gap / 2 - 12, bottomY = y + gap / 2 - 12;
   const drawKey = (kx, ky, label) => {
     ctx.fillStyle = 'rgba(7,13,33,0.9)'; ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2;
     ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 10;
@@ -1374,13 +1383,13 @@ function drawControlOnboarding() {
   };
   ctx.save();
   ctx.fillStyle = 'rgba(4,7,21,0.72)'; ctx.strokeStyle = 'rgba(0,229,255,0.5)'; ctx.lineWidth = 2;
-  const panelW = compact ? 246 : 290, panelH = compact ? 124 : 142;
+  const panelW = compact ? 246 : 290, panelH = compact ? 144 : 164;
   roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, 14); ctx.fill(); ctx.stroke();
   drawKey(x, topY, 'W / Z'); drawKey(x - keyW - gap, bottomY, 'A / Q'); drawKey(x, bottomY, 'S'); drawKey(x + keyW + gap, bottomY, 'D');
   ctx.fillStyle = '#b7f8ff'; ctx.font = '900 ' + (compact ? 12 : 14) + 'px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText('WASD / ZQSD  ·  ARROWS', x, y + panelH / 2 - (compact ? 14 : 17));
+  ctx.fillText('WASD / ZQSD  ·  ARROWS', x, y + (compact ? 31 : 36));
   ctx.fillStyle = 'rgba(255,255,255,0.76)'; ctx.font = 'bold ' + (compact ? 11 : 13) + 'px sans-serif';
-  ctx.fillText('SWIPE OR TAP TO STEER', x, y + panelH / 2 + (compact ? 2 : 4));
+  ctx.fillText('SWIPE OR TAP TO STEER', x, y + (compact ? 50 : 56));
   ctx.restore();
 }
 
@@ -1458,6 +1467,7 @@ function drawTitle(yc, compact = false) {
 function drawMenu() {
   const compact = isDesktop && H < 620;
   drawGame();
+  drawMenuHeadlightSweep();
   ctx.fillStyle = 'rgba(4,6,16,0.55)';
   ctx.fillRect(0, 0, W, H);
   drawTitle(H * (compact ? 0.16 : 0.2), compact);
@@ -1495,6 +1505,22 @@ function drawMenu() {
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 22px sans-serif';
     ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.82);
   }
+}
+
+function drawMenuHeadlightSweep() {
+  const phase = (G.time * 0.16) % 1;
+  const sweepX = -W * 0.2 + phase * W * 1.4;
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const beam = ctx.createLinearGradient(sweepX - W * 0.22, 0, sweepX + W * 0.22, 0);
+  beam.addColorStop(0, 'rgba(0,229,255,0)');
+  beam.addColorStop(0.46, 'rgba(110,245,255,0.02)');
+  beam.addColorStop(0.5, 'rgba(232,255,255,0.20)');
+  beam.addColorStop(0.54, 'rgba(110,245,255,0.02)');
+  beam.addColorStop(1, 'rgba(0,229,255,0)');
+  ctx.fillStyle = beam;
+  ctx.beginPath(); ctx.moveTo(sweepX - W * 0.22, H); ctx.lineTo(sweepX + W * 0.04, 0); ctx.lineTo(sweepX + W * 0.22, 0); ctx.lineTo(sweepX, H); ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 // ---------- garage ----------
