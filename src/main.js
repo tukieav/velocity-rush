@@ -1448,15 +1448,20 @@ function drawTitle(yc, compact = false) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const tg = ctx.createLinearGradient(0, yc - 36, 0, yc + 36);
   tg.addColorStop(0, '#ffffff'); tg.addColorStop(0.5, '#ffd1e6'); tg.addColorStop(1, '#ff2d78');
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = compact ? 4 : 5;
+  ctx.strokeStyle = '#5b164f';
   ctx.shadowColor = '#ff2d78'; ctx.shadowBlur = 34;
   ctx.fillStyle = tg;
   const titleSize = compact ? 46 : 64, rushOffset = compact ? 52 : 70;
   ctx.font = '900 ' + titleSize + 'px sans-serif';
+  ctx.strokeText('VELOCITY', W / 2 + 4, yc + 6);
   ctx.fillText('VELOCITY', W / 2, yc);
   const tg2 = ctx.createLinearGradient(0, yc + 34, 0, yc + 106);
   tg2.addColorStop(0, '#ffffff'); tg2.addColorStop(0.5, '#c9f6ff'); tg2.addColorStop(1, '#00e5ff');
   ctx.shadowColor = '#00e5ff';
   ctx.fillStyle = tg2;
+  ctx.strokeText('RUSH', W / 2 + 4, yc + rushOffset + 6);
   ctx.fillText('RUSH', W / 2, yc + rushOffset);
   ctx.shadowBlur = 0;
   // scanline accent under the title
@@ -1467,8 +1472,11 @@ function drawTitle(yc, compact = false) {
 function drawMenu() {
   const compact = isDesktop && H < 620;
   drawGame();
+  drawMenuSunsetHorizon();
   drawMenuHeadlightSweep();
-  ctx.fillStyle = 'rgba(4,6,16,0.55)';
+  const veil = ctx.createLinearGradient(0, 0, 0, H);
+  veil.addColorStop(0, 'rgba(40,16,81,0.12)'); veil.addColorStop(0.55, 'rgba(18,11,48,0.18)'); veil.addColorStop(1, 'rgba(4,6,16,0.34)');
+  ctx.fillStyle = veil;
   ctx.fillRect(0, 0, W, H);
   drawTitle(H * (compact ? 0.16 : 0.2), compact);
   drawWallet(W - 16, 40);
@@ -1507,16 +1515,49 @@ function drawMenu() {
   }
 }
 
+function drawMenuSunsetHorizon() {
+  // Menu-only: gameplay retains its night-race art direction, while the menu
+  // meets the bright cover with a welcoming orange-pink horizon.
+  const hy = HORIZON + 10;
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  // Broad dawn wash gives the menu a genuine daylight cue at first glance,
+  // instead of asking a new player to infer it from tiny neon lines.
+  const dawn = ctx.createLinearGradient(0, 0, 0, H * 0.64);
+  dawn.addColorStop(0, 'rgba(82,72,182,0.40)');
+  dawn.addColorStop(0.23, 'rgba(255,86,147,0.38)');
+  dawn.addColorStop(0.46, 'rgba(255,161,92,0.28)');
+  dawn.addColorStop(1, 'rgba(255,161,92,0)');
+  ctx.fillStyle = dawn; ctx.fillRect(0, 0, W, H * 0.68);
+  ctx.fillStyle = 'rgba(255,213,112,0.34)';
+  ctx.beginPath(); ctx.arc(W * 0.60, hy + H * 0.06, Math.min(W, H) * 0.17, 0, Math.PI * 2); ctx.fill();
+  const glow = ctx.createRadialGradient(W * 0.57, hy, 8, W * 0.57, hy, Math.max(W, H) * 0.62);
+  glow.addColorStop(0, 'rgba(255,235,142,0.82)'); glow.addColorStop(0.22, 'rgba(255,123,106,0.48)'); glow.addColorStop(0.62, 'rgba(255,59,149,0.16)'); glow.addColorStop(1, 'rgba(255,59,149,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 0.78;
+  ctx.shadowColor = '#ffb05b'; ctx.shadowBlur = 28;
+  ctx.strokeStyle = '#ffd275'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0, hy); ctx.lineTo(W, hy); ctx.stroke();
+  ctx.shadowBlur = 0;
+  for (let i = 0; i < 5; i++) {
+    const x = (i + .5) * W / 5;
+    const ray = ctx.createLinearGradient(x, hy, x + W * .10, H * .15);
+    ray.addColorStop(0, 'rgba(255,211,119,.24)'); ray.addColorStop(1, 'rgba(255,211,119,0)');
+    ctx.fillStyle = ray; ctx.beginPath(); ctx.moveTo(x - 9, hy); ctx.lineTo(x + 9, hy); ctx.lineTo(x + W * .10, H * .15); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
 function drawMenuHeadlightSweep() {
-  const phase = (G.time * 0.16) % 1;
+  const phase = (G.time * 0.22) % 1;
   const sweepX = -W * 0.2 + phase * W * 1.4;
   ctx.save();
   ctx.globalCompositeOperation = 'screen';
   const beam = ctx.createLinearGradient(sweepX - W * 0.22, 0, sweepX + W * 0.22, 0);
   beam.addColorStop(0, 'rgba(0,229,255,0)');
-  beam.addColorStop(0.46, 'rgba(110,245,255,0.02)');
-  beam.addColorStop(0.5, 'rgba(232,255,255,0.20)');
-  beam.addColorStop(0.54, 'rgba(110,245,255,0.02)');
+  beam.addColorStop(0.46, 'rgba(110,245,255,0.05)');
+  beam.addColorStop(0.5, 'rgba(255,247,190,0.30)');
+  beam.addColorStop(0.54, 'rgba(110,245,255,0.05)');
   beam.addColorStop(1, 'rgba(0,229,255,0)');
   ctx.fillStyle = beam;
   ctx.beginPath(); ctx.moveTo(sweepX - W * 0.22, H); ctx.lineTo(sweepX + W * 0.04, 0); ctx.lineTo(sweepX + W * 0.22, 0); ctx.lineTo(sweepX, H); ctx.closePath(); ctx.fill();
