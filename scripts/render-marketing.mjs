@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const coverPath = 'file://' + join(root, 'marketing/cover.html');
+const gameUrl = process.env.URL || 'http://localhost:8523/?debug=1';
 
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
 
@@ -24,7 +25,7 @@ await shot(coverPath + '?w=800&h=1200&sq=1', 800, 1200, 'cover-2x3.png');
 
 // gameplay screenshots from live game (menu + mid-run)
 const page = await browser.newPage({ viewport: { width: 1080, height: 1080 } });
-await page.goto('http://localhost:8523/?debug=1');
+await page.goto(gameUrl);
 await page.waitForFunction(() => window.__astro && window.__astro.getState().state === 'menu', null, { timeout: 15000 });
 await page.waitForTimeout(600);
 await page.screenshot({ path: join(root, 'marketing', 'screenshot-menu.png') });

@@ -6,6 +6,18 @@ export function reactionWindow(speed, handling) {
   return { seconds: reactionSeconds, distance: Math.round(speed * reactionSeconds + 110) };
 }
 
+// Desktop lanes grow with the viewport, so traffic must grow with them too.
+// Otherwise the discrete adjacent-lane pass is visually and mechanically too
+// distant to earn its intended close-call reward on wide CrazyGames canvases.
+export function trafficCarWidth(laneWidth, isDesktop) {
+  return isDesktop ? Math.min(200, Math.max(64, laneWidth * 0.55)) : 54;
+}
+
+export function isMarkedNearMiss(playerX, obstacleX, laneWidth, carWidth) {
+  const edgeGap = Math.abs(obstacleX - playerX) - carWidth;
+  return edgeGap < Math.max(15, laneWidth * 0.58) && edgeGap > -carWidth * 0.5;
+}
+
 export function chooseTrafficSpawn({ random, speed, handling, playerLane, active, lanes = 4, horizon = 90, playerY = 500 }) {
   const window = reactionWindow(speed, handling);
   // A car claims its lane for the whole visible approach. The reaction window

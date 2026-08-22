@@ -3,7 +3,8 @@ import { initSDK, gameplayStart, gameplayStop, loadingStart, loadingStop, happyt
 import * as audio from './audio.js';
 import { CARS, UPGRADES, M, loadMeta, saveMeta, getCar, nitroDuration, magnetRadius, hasShield, buyCar, selectCar, buyUpgrade, activeMissions, commitRun, addWallet, claimDaily } from './meta.js';
 import { FIXED_STEP, consumeFixedSteps } from './sim.js';
-import { chooseTrafficSpawn } from './traffic.js';
+import { chooseTrafficSpawn, isMarkedNearMiss, trafficCarWidth } from './traffic.js';
+import { speedometerGauge } from './feedback.js';
 
 // The simulation is expressed in CSS pixels.  On phones it keeps the original
 // portrait composition; on desktop it becomes a real landscape canvas instead
@@ -37,7 +38,7 @@ function resize() {
   ROAD_W = Math.max(300, ROAD_W);
   ROAD_X = (W - ROAD_W) / 2;
   LANE_W = ROAD_W / LANES;
-  CAR_W = isDesktop ? Math.min(140, Math.max(64, LANE_W * 0.55)) : 54;
+  CAR_W = trafficCarWidth(LANE_W, isDesktop);
   CAR_H = CAR_W * 1.70;
   TRUCK_H = CAR_H * 2;
   canvas.width = Math.round(W * dpr);
@@ -416,8 +417,7 @@ function update(dt) {
     // reward a visible choice instead of an accidental proximity bonus.
     if (!o.passed && o.y > PLAYER_Y + CAR_H / 2) {
       o.passed = true;
-      const gap = Math.abs(ox - G.playerX) - (CAR_W); // gap between car edges
-      if (o.marked && gap < Math.max(15, LANE_W * 0.58) && gap > -CAR_W * 0.5) {
+      if (o.marked && isMarkedNearMiss(G.playerX, ox, LANE_W, CAR_W)) {
         // chain: consecutive near misses within 3s build a rising multiplier
         G.nmChain++;
         G.nmChainT = 3;
@@ -1219,7 +1219,7 @@ function drawGame() {
 // ---------- HUD ----------
 function drawSpeedo() {
   const cx = W - 82, cy = H - 86, R = 60;
-  const spd = speedKmh(), maxV = 460;
+  const spd = speedKmh(), gauge = speedometerGauge(spd), maxV = gauge.max;
   const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
   ctx.save();
   ctx.globalAlpha = 0.92;
@@ -1233,7 +1233,7 @@ function drawSpeedo() {
   ctx.beginPath(); ctx.arc(cx, cy, R + 7, 0, Math.PI * 2); ctx.stroke();
   ctx.shadowBlur = 0;
   // speed arc
-  const frac = Math.min(1, spd / maxV);
+  const frac = gauge.fraction;
   ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 7; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.arc(cx, cy, R - 8, a0, a1); ctx.stroke();
   const hot = spd > 300;
@@ -1243,7 +1243,7 @@ function drawSpeedo() {
   ctx.shadowBlur = 0;
   ctx.lineCap = 'butt';
   // ticks
-  for (let v = 0; v <= maxV; v += 60) {
+  for (let v = 0; v <= maxV; v += 100) {
     const a = a0 + (a1 - a0) * (v / maxV);
     ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1897,13 +1897,29 @@ function garageAction(id) {
   else if (id === 'back') { state = 'menu'; }
 }
 
+function garagePrimaryAction() {
+  const car = CARS[garageIdx];
+  if (M.owned.includes(car.id)) {
+    if (M.selected !== car.id && selectCar(car.id)) audio.coinSound(2);
+  } else if (buyCar(car.id)) {
+    audio.coinSound(6);
+    happytime();
+  }
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  if (state === 'garage') {
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') garageAction('prevCar');
+    else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') garageAction('nextCar');
+    else if (e.key === ' ' || e.key === 'Enter') garagePrimaryAction();
+    else if (e.key === 'Escape') state = 'menu';
+    return;
+  }
   if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLane(-1);
   else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveLane(1);
   else if ((e.key === ' ' || e.key === 'Enter') && state === 'menu') startGame();
   else if ((e.key === ' ' || e.key === 'Enter') && state === 'gameover') playAgain();
-  else if (e.key === 'Escape' && state === 'garage') state = 'menu';
 });
 
 function canvasPos(ev) {
@@ -2012,6 +2028,7 @@ if (debug) {
       nitroT: G.nitroT,
       shieldReady: G.shieldReady,
       runResult: runResult ? { earned: runResult.earned, doubled: runResult.doubled, missions: runResult.missions.map(m => m.id) } : null,
+      garageCar: CARS[garageIdx].id,
       trafficVisible: G.obstacles.filter(o => o.y + o.h > HORIZON && o.y < H).length,
       obstacles: G.obstacles.map(o => ({ lane: o.lane, lanePos: o.lanePos, y: o.y, h: o.h, marked: !!o.marked, signal: !!o.signal })),
       pickups: G.pickups.map(p => ({ lane: p.lane, y: p.y, kind: p.kind })),
