@@ -1,194 +1,74 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="UTF-8"><style>html,body{margin:0;padding:0;background:#000}</style></head>
+<head><meta charset="UTF-8"><style>html,body{margin:0;padding:0;background:#ff7a55;overflow:hidden}canvas{display:block}</style></head>
 <body>
 <canvas id="cover"></canvas>
 <script>
-// Cover generator for Velocity Rush — ?w=&h=&sq=1 (sq/portrait layout)
+// Bright illustrated cover generator for Velocity Rush. Query: ?w=&h=&sq=1
 const q = new URLSearchParams(location.search);
-const W = parseInt(q.get('w') || '1920', 10);
-const H = parseInt(q.get('h') || '1080', 10);
-const canvas = document.getElementById('cover');
-canvas.width = W; canvas.height = H;
+const W = parseInt(q.get('w') || '1920', 10), H = parseInt(q.get('h') || '1080', 10);
+const canvas = document.getElementById('cover'); canvas.width = W; canvas.height = H;
 const g = canvas.getContext('2d');
-const portrait = q.get('sq') === '1' || W < H;
-const sq = Math.min(W, H) / 1080;
+const portrait = W < H;
+const U = Math.min(W / 1920, H / 1080);
+const cx = W * (portrait ? 0.52 : 0.57);
+const horizon = H * (portrait ? 0.61 : 0.57);
+const carY = H * (portrait ? 0.67 : 0.62);
+const carW = Math.min(W * (portrait ? 0.92 : 0.57), H * (portrait ? 0.78 : 0.67));
 
-// bg
-const bg = g.createLinearGradient(0, 0, 0, H);
-bg.addColorStop(0, '#05060f'); bg.addColorStop(0.55, '#0d1030'); bg.addColorStop(1, '#1a0b30');
-g.fillStyle = bg; g.fillRect(0, 0, W, H);
+function path(points) { g.beginPath(); g.moveTo(points[0][0], points[0][1]); for (let i=1;i<points.length;i++) g.lineTo(points[i][0],points[i][1]); g.closePath(); }
 
-// stars
-let seed = 7;
-function rnd(){seed=(seed*1103515245+12345)%2147483648;return seed/2147483648;}
-for (let i=0;i<220;i++){
-  g.fillStyle='rgba(255,255,255,'+(0.25+rnd()*0.6)+')';
-  g.fillRect(rnd()*W, rnd()*H*0.7, rnd()*2.4+0.6, rnd()*2.4+0.6);
-}
+// Orange/pink day-sunset sky, deliberately keeping the whole canvas luminous.
+const sky = g.createLinearGradient(0, 0, 0, H);
+sky.addColorStop(0, '#4edbff'); sky.addColorStop(0.28, '#72c6ff'); sky.addColorStop(0.55, '#ffb16e'); sky.addColorStop(0.77, '#fa675d'); sky.addColorStop(1, '#9b397d');
+g.fillStyle = sky; g.fillRect(0,0,W,H);
+const sun = g.createRadialGradient(W*.74,horizon*.58,5,W*.74,horizon*.58,Math.max(W,H)*.42);
+sun.addColorStop(0,'rgba(255,249,186,.94)'); sun.addColorStop(.26,'rgba(255,209,101,.50)'); sun.addColorStop(.62,'rgba(255,135,107,.12)'); sun.addColorStop(1,'rgba(255,90,130,0)');
+g.fillStyle=sun;g.fillRect(0,0,W,H);
 
-// perspective road (bottom)
-const horizonY = H * (portrait ? 0.52 : 0.45);
-const roadTopW = W * 0.10, roadBotW = W * (portrait ? 1.5 : 0.85);
-const cx = W / 2;
-g.fillStyle = '#131629';
-g.beginPath();
-g.moveTo(cx - roadTopW/2, horizonY);
-g.lineTo(cx + roadTopW/2, horizonY);
-g.lineTo(cx + roadBotW/2, H);
-g.lineTo(cx - roadBotW/2, H);
-g.closePath(); g.fill();
+// Soft illustrated clouds.
+function cloud(x,y,s,a){g.save();g.globalAlpha=a;g.fillStyle='#fff3df';g.shadowColor='rgba(255,255,255,.25)';g.shadowBlur=28*U;for(const [dx,dy,r] of [[0,0,30],[34,-13,39],[77,1,29],[-31,7,22],[109,11,19]]){g.beginPath();g.arc(x+dx*s,y+dy*s,r*s,0,Math.PI*2);g.fill();}g.fillRect(x-36*s,y,x+128*s,y+28*s);g.restore();}
+cloud(W*.10,H*.18,1.7*U,.37); cloud(W*.66,H*.13,1.3*U,.30); cloud(W*.37,H*.39,1.15*U,.24);
 
-// neon edges
-function edge(x1, x2, color) {
-  g.strokeStyle = color; g.lineWidth = 8*sq;
-  g.shadowColor = color; g.shadowBlur = 26*sq;
-  g.beginPath(); g.moveTo(cx + x1, horizonY); g.lineTo(cx + x2, H); g.stroke();
-  g.shadowBlur = 0;
-}
-edge(-roadTopW/2, -roadBotW/2, '#ff2d78');
-edge(roadTopW/2, roadBotW/2, '#ff2d78');
+// Warm atmospheric speed beams and road-side silhouettes.
+g.save();g.globalCompositeOperation='screen';
+for(let i=0;i<7;i++){const x=(i/6-.05)*W;const beam=g.createLinearGradient(x,0,x+W*.22,H);beam.addColorStop(0,'rgba(255,255,255,0)');beam.addColorStop(.5,i%2?'rgba(255,244,172,.20)':'rgba(255,177,110,.16)');beam.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=beam;path([[x,H*.12],[x+W*.045,H*.12],[x+W*.34,H],[x+W*.19,H]]);g.fill();}g.restore();
+g.fillStyle='rgba(104,53,112,.40)';
+for(let x=-30;x<W+40;){const bw=(35+((x*13)%67+67)%67)*U, bh=(20+((x*19)%90+90)%90)*U;g.fillRect(x,horizon-bh,bw,bh);x+=bw+8*U;}
+g.fillStyle='rgba(86,44,98,.60)';
+for(let x=-20;x<W+30;){const bw=(20+((x*7)%43+43)%43)*U,bh=(10+((x*31)%56+56)%56)*U;g.fillRect(x,horizon-bh,bw,bh);x+=bw+4*U;}
 
-// lane dashes (3 dividers, perspective)
-g.strokeStyle = 'rgba(120,200,255,0.7)';
-for (let l = 1; l < 4; l++) {
-  const f = l / 4 - 0.5;
-  for (let t = 0.08; t < 1; t += 0.16) {
-    const y1 = horizonY + (H - horizonY) * t;
-    const y2 = horizonY + (H - horizonY) * Math.min(1, t + 0.07);
-    const w1 = roadTopW + (roadBotW - roadTopW) * t;
-    const w2 = roadTopW + (roadBotW - roadTopW) * Math.min(1, t + 0.07);
-    g.lineWidth = 3 + 6 * t;
-    g.beginPath(); g.moveTo(cx + f * w1, y1); g.lineTo(cx + f * w2, y2); g.stroke();
-  }
-}
+// Highway, a vivid graphic diagonal perspective instead of a dark void.
+const road=g.createLinearGradient(0,horizon,0,H);road.addColorStop(0,'#5e5c91');road.addColorStop(.22,'#56537f');road.addColorStop(1,'#292c53');g.fillStyle=road;
+path([[W*.42,horizon],[W*.87,horizon],[W*1.15,H],[W*-.12,H]]);g.fill();
+for(const [off,col] of [[-.15,'#fff2b2'],[.14,'#fffdcf'],[-.36,'#ff8a75'],[.38,'#ff8a75']]){g.strokeStyle=col;g.shadowColor=col;g.shadowBlur=10*U;g.lineWidth=5*U;g.beginPath();g.moveTo(W*.64+off*W*.12,horizon);g.lineTo(W*.49+off*W*1.45,H);g.stroke();}g.shadowBlur=0;
+g.strokeStyle='rgba(255,255,235,.76)';g.lineWidth=8*U;
+for(let lane=0;lane<3;lane++)for(let j=0;j<5;j++){const t=.13+j*.19, y=horizon+(H-horizon)*t, len=(H-horizon)*(.035+t*.06), x=W*.64+(lane-1)*W*(.015+t*.14);g.beginPath();g.moveTo(x,y);g.lineTo(x-(lane-1)*W*.026,y+len);g.stroke();}
 
-// synthwave sun above horizon
-{
-  const sxx = cx + W*(portrait?0.30:0.36), syy = horizonY - 6*sq, sr = 130*sq;
-  g.save();
-  g.beginPath(); g.arc(sxx, syy, sr, Math.PI, 0); g.closePath(); g.clip();
-  const sg = g.createLinearGradient(0, syy - sr, 0, syy);
-  sg.addColorStop(0, '#ffd76a'); sg.addColorStop(0.55, '#ff6d9e'); sg.addColorStop(1, '#ff2d78');
-  g.fillStyle = sg; g.fillRect(sxx - sr, syy - sr, sr*2, sr);
-  g.fillStyle = '#0d1030';
-  for (let i=0;i<6;i++) g.fillRect(sxx - sr, syy - 12*sq - i*24*sq, sr*2, (3 + i*2.4)*sq);
-  g.restore();
-}
+// Motion strokes fan behind the hero car.
+g.save();g.globalCompositeOperation='screen';
+for(let i=0;i<26;i++){const yy=H*(.31+(i/25)*.60), left=i%2===0;const startX=left?W*(-.12+(i%5)*.045):W*(.99-(i%5)*.035);const endX=cx+(left?-carW*.34:carW*.38);g.strokeStyle=i%3===0?'rgba(255,246,186,.75)':i%3===1?'rgba(255,105,103,.60)':'rgba(110,235,255,.54)';g.lineWidth=(2+i%4)*U;g.beginPath();g.moveTo(startX,yy);g.lineTo(endX,carY+(i%8-4)*carW*.015);g.stroke();}g.restore();
 
-// city skyline silhouette at horizon
-g.fillStyle = '#0a0d22';
-seed = 99;
-for (let x = 0; x < W; ) {
-  const bw = (20 + rnd()*70) * sq, bh = (30 + rnd()*130) * sq;
-  g.fillRect(x, horizonY - bh, bw, bh);
-  // windows
-  g.fillStyle = 'rgba(255,220,120,0.5)';
-  for (let i=0;i<5;i++) if (rnd()<0.5) g.fillRect(x + rnd()*bw*0.8, horizonY - bh + rnd()*bh*0.8, 3*sq, 4*sq);
-  g.fillStyle = '#0a0d22';
-  x += bw + 6*sq;
-}
-// horizon glow
-const hg = g.createLinearGradient(0, horizonY - 80*sq, 0, horizonY + 40*sq);
-hg.addColorStop(0, 'rgba(124,77,255,0)'); hg.addColorStop(0.7, 'rgba(124,77,255,0.35)'); hg.addColorStop(1, 'rgba(124,77,255,0)');
-g.fillStyle = hg; g.fillRect(0, horizonY - 80*sq, W, 120*sq);
+// Large 3/4 glossy hero car.
+function heroCar(x,y,w){const h=w*.52;g.save();g.translate(x,y);g.rotate(-.055);g.shadowColor='rgba(63,21,80,.55)';g.shadowBlur=34*U;g.fillStyle='rgba(61,22,76,.38)';g.beginPath();g.ellipse(0,h*.42,w*.58,h*.19,-.04,0,Math.PI*2);g.fill();g.shadowBlur=0;
+  for(const wx of [-w*.34,w*.34]){g.fillStyle='#15162a';g.beginPath();g.ellipse(wx,h*.25,w*.145,h*.22,0,0,Math.PI*2);g.fill();g.strokeStyle='#ffca68';g.lineWidth=5*U;g.beginPath();g.arc(wx,h*.25,w*.084,0,Math.PI*2);g.stroke();g.fillStyle='#5d315e';g.beginPath();g.arc(wx,h*.25,w*.035,0,Math.PI*2);g.fill();}
+  path([[-w*.49,h*.15],[-w*.43,-h*.08],[-w*.29,-h*.30],[-w*.04,-h*.42],[w*.28,-h*.35],[w*.49,-h*.10],[w*.51,h*.12],[w*.38,h*.28],[-w*.38,h*.30]]);
+  const body=g.createLinearGradient(-w*.5,-h*.4,w*.5,h*.3);body.addColorStop(0,'#811d5f');body.addColorStop(.19,'#ef3f67');body.addColorStop(.43,'#ff7b60');body.addColorStop(.57,'#ffb05c');body.addColorStop(.70,'#ec3f65');body.addColorStop(1,'#5d1c62');g.fillStyle=body;g.fill();g.strokeStyle='#8d235f';g.lineWidth=5*U;g.stroke();
+  g.save();path([[-w*.25,-h*.18],[-w*.05,-h*.34],[w*.32,-h*.27],[w*.19,-h*.06],[-w*.22,-h*.02]]);g.clip();const gloss=g.createLinearGradient(-w*.2,-h*.3,w*.3,0);gloss.addColorStop(0,'rgba(255,255,255,.05)');gloss.addColorStop(.48,'rgba(255,247,202,.72)');gloss.addColorStop(.7,'rgba(255,255,255,.10)');g.fillStyle=gloss;g.fillRect(-w*.35,-h*.45,w*.75,h*.45);g.restore();
+  g.strokeStyle='rgba(111,19,80,.74)';g.lineWidth=4*U;g.beginPath();g.moveTo(-w*.02,-h*.37);g.lineTo(-w*.01,h*.18);g.stroke();
+  path([[-w*.27,-h*.28],[-w*.05,-h*.43],[w*.22,-h*.36],[w*.29,-h*.19],[-w*.14,-h*.17]]);const glass=g.createLinearGradient(0,-h*.44,0,-h*.15);glass.addColorStop(0,'#dbf6ff');glass.addColorStop(.12,'#76bfe5');glass.addColorStop(.52,'#263a78');glass.addColorStop(1,'#121938');g.fillStyle=glass;g.fill();g.strokeStyle='rgba(255,245,209,.65)';g.lineWidth=3*U;g.stroke();
+  path([[-w*.48,h*.08],[w*.48,h*.06],[w*.42,h*.21],[-w*.39,h*.25]]);g.fillStyle='#281833';g.fill();g.fillStyle='rgba(255,218,119,.82)';for(let i=0;i<5;i++)g.fillRect(-w*.23+i*w*.10,h*.105,w*.055,h*.018);
+  for(const side of [-1,1]){g.shadowColor='#fff4b0';g.shadowBlur=20*U;g.fillStyle='#fff7c9';path([[side*w*.42,-h*.025],[side*w*.22,-h*.08],[side*w*.19,h*.01],[side*w*.39,h*.06]]);g.fill();g.shadowBlur=0;}
+  g.fillStyle='#25162f';path([[-w*.47,h*.21],[w*.47,h*.19],[w*.42,h*.32],[-w*.43,h*.34]]);g.fill();g.fillStyle='#ffcf6d';g.fillRect(-w*.30,h*.30,w*.52,h*.018);
+  g.fillStyle='rgba(255,255,255,.72)';for(const [px,py,r] of [[-.29,-.12,4],[.16,-.22,3],[.31,.02,2],[-.13,.11,2]]){g.beginPath();g.arc(px*w,py*h,r*U,0,Math.PI*2);g.fill();}
+g.restore();}
+heroCar(cx,carY,carW);
 
-// car drawing (rear view, on perspective road)
-function car(x, y, w, color, boost) {
-  const h = w * 1.55;
-  g.save(); g.translate(x, y);
-  if (boost) {
-    // flame trail
-    const fg = g.createLinearGradient(0, h*0.5, 0, h*1.7);
-    fg.addColorStop(0, 'rgba(0,229,255,0.9)'); fg.addColorStop(0.5, 'rgba(255,144,64,0.7)'); fg.addColorStop(1, 'rgba(255,144,64,0)');
-    g.fillStyle = fg;
-    g.beginPath();
-    g.moveTo(-w*0.3, h*0.5); g.lineTo(0, h*1.7); g.lineTo(w*0.3, h*0.5);
-    g.closePath(); g.fill();
-  }
-  const hw = w/2, hh = h/2;
-  // underglow
-  const ug = g.createRadialGradient(0, hh*0.1, hw*0.2, 0, hh*0.1, hw*2.2);
-  ug.addColorStop(0, color + 'aa'); ug.addColorStop(1, color + '00');
-  g.fillStyle = ug;
-  g.beginPath(); g.ellipse(0, hh*0.1, hw*2.2, hh*1.3, 0, 0, Math.PI*2); g.fill();
-  // wheels
-  g.fillStyle = '#07080f';
-  for (const wy of [-hh*0.52, hh*0.5]) for (const wx of [-hw*0.94, hw*0.94])
-    g.fillRect(wx - w*0.09, wy - h*0.1, w*0.18, h*0.2);
-  // body silhouette (wedge nose, curved sides, tail)
-  g.shadowColor = color; g.shadowBlur = 40*sq;
-  g.beginPath();
-  g.moveTo(-hw*0.5, -hh);
-  g.quadraticCurveTo(-hw*1.02, -hh*0.45, -hw, -hh*0.15);
-  g.lineTo(-hw*0.94, hh*0.55);
-  g.quadraticCurveTo(-hw*0.86, hh*0.92, -hw*0.7, hh);
-  g.lineTo(hw*0.7, hh);
-  g.quadraticCurveTo(hw*0.86, hh*0.92, hw*0.94, hh*0.55);
-  g.lineTo(hw, -hh*0.15);
-  g.quadraticCurveTo(hw*1.02, -hh*0.45, hw*0.5, -hh);
-  g.quadraticCurveTo(0, -hh*1.05, -hw*0.5, -hh);
-  g.closePath();
-  const bg2 = g.createLinearGradient(-hw, 0, hw, 0);
-  bg2.addColorStop(0, '#083a30'); bg2.addColorStop(0.3, color); bg2.addColorStop(0.5, '#ffffff');
-  bg2.addColorStop(0.52, color); bg2.addColorStop(1, '#083a30');
-  // gradient per color: fallback tint via composite of color body + white sheen
-  g.fillStyle = color; g.fill();
-  g.shadowBlur = 0;
-  g.save(); g.clip();
-  const sheen = g.createLinearGradient(-hw, 0, hw, 0);
-  sheen.addColorStop(0, 'rgba(0,0,0,0.5)'); sheen.addColorStop(0.32, 'rgba(0,0,0,0)');
-  sheen.addColorStop(0.5, 'rgba(255,255,255,0.45)'); sheen.addColorStop(0.68, 'rgba(0,0,0,0)');
-  sheen.addColorStop(1, 'rgba(0,0,0,0.5)');
-  g.fillStyle = sheen; g.fillRect(-hw, -hh, w, h);
-  g.restore();
-  // cabin glass
-  g.beginPath();
-  g.moveTo(-hw*0.62, -hh*0.3); g.quadraticCurveTo(0, -hh*0.52, hw*0.62, -hh*0.3);
-  g.lineTo(hw*0.56, hh*0.26); g.quadraticCurveTo(0, hh*0.42, -hw*0.56, hh*0.26);
-  g.closePath();
-  const gl = g.createLinearGradient(0, -hh*0.4, 0, hh*0.3);
-  gl.addColorStop(0, '#0b1230'); gl.addColorStop(0.5, '#22366e'); gl.addColorStop(1, '#0a0f28');
-  g.fillStyle = gl; g.fill();
-  // spoiler
-  g.fillStyle = 'rgba(0,0,0,0.55)';
-  g.fillRect(-hw*1.02, hh*0.74, w*1.02, h*0.055);
-  // tail light strip
-  g.shadowColor = '#ff2050'; g.shadowBlur = 20*sq;
-  g.fillStyle = '#ff2050';
-  g.fillRect(-hw*0.6, hh - h*0.06, hw*1.2, h*0.05);
-  g.shadowBlur = 0;
-  g.restore();
-}
-
-// traffic cars
-car(cx - W*0.16, horizonY + (H-horizonY)*0.35, 60*sq, '#ffb300');
-car(cx + W*0.14, horizonY + (H-horizonY)*0.25, 46*sq, '#7c4dff');
-car(cx + W*(portrait?0.2:0.24), horizonY + (H-horizonY)*0.55, 90*sq, '#ff2d78');
-// hero car with nitro
-car(cx - W*(portrait?0.06:0.05), H*(portrait?0.82:0.8), (portrait?150:170)*sq, '#00ffc8', true);
-
-// speed streaks
-g.strokeStyle = 'rgba(160,220,255,0.5)';
-for (let i=0;i<14;i++){
-  const x = rnd()*W, y = horizonY + rnd()*(H-horizonY);
-  const len = 40 + rnd()*120;
-  g.lineWidth = 2 + rnd()*3;
-  g.beginPath(); g.moveTo(x, y); g.lineTo(x, y+len*sq); g.stroke();
-}
-
-// title — scale from WIDTH, two lines
-g.textAlign = 'center'; g.textBaseline = 'middle';
-const fs = Math.min(190*sq, W*0.145);
-const ty = portrait ? H*0.14 : H*0.18;
-g.shadowColor = '#ff2d78'; g.shadowBlur = 40*sq;
-g.fillStyle = '#ffffff';
-g.font = '900 ' + fs + 'px "Segoe UI", Arial, sans-serif';
-g.fillText('VELOCITY', W/2, ty);
-g.shadowColor = '#00e5ff';
-g.fillText('RUSH', W/2, ty + fs*1.05);
-g.shadowBlur = 0;
-document.title = 'ready';
+// Chunky outlined title, with only the game's title allowed on the art.
+function titleLine(text,y,size){g.save();g.textAlign='center';g.textBaseline='middle';g.font='900 '+size+'px Arial Black, Impact, sans-serif';g.lineJoin='round';g.lineWidth=Math.max(7*U,size*.085);g.strokeStyle='#72265f';g.strokeText(text,W*.50+size*.045,y+size*.10);g.shadowColor='rgba(94,34,82,.52)';g.shadowBlur=15*U;g.fillStyle='#ffefad';g.fillText(text,W*.50+size*.045,y+size*.10);g.shadowBlur=0;const t=g.createLinearGradient(0,y-size*.6,0,y+size*.6);t.addColorStop(0,'#fffce5');t.addColorStop(.45,'#ffe265');t.addColorStop(1,'#ff8d64');g.fillStyle=t;g.lineWidth=Math.max(3*U,size*.032);g.strokeStyle='#fff6cd';g.strokeText(text,W*.50,y);g.fillText(text,W*.50,y);g.restore();}
+const ts=Math.min(W*(portrait?.12:.105),H*(portrait?.105:.13));
+const titleY=portrait?H*.13:H*.16;titleLine('VELOCITY',titleY,ts);titleLine('RUSH',titleY+ts*.93,ts*1.15);
+document.title='ready';
 </script>
 </body>
 </html>
