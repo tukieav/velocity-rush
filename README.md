@@ -6,8 +6,9 @@ grab nitro and coins, chase near-misses — one crash ends the run.
 **Play:** https://tukieav.github.io/velocity-rush/
 
 ## Controls
-- Left/Right arrows or A/D — change lane
+- Left/Right arrows or physical WASD / ZQSD keys — change lane
 - Mobile: swipe left/right or tap screen halves
+- Garage: visible Back button, Backspace, G, or Escape returns to the menu
 
 ## Tech
 - Vanilla JS + Canvas 2D, zero asset files (all procedural graphics + WebAudio sound)

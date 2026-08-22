@@ -1,6 +1,6 @@
 // Live verification: console errors + canvas pixels + play a few moves
 import { chromium } from 'playwright';
-const URL = 'https://tukieav.github.io/velocity-rush/?debug=1';
+const URL = process.env.URL || 'https://tukieav.github.io/velocity-rush/?debug=1';
 const errors = [];
 const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', headless: true });
 const page = await browser.newPage({ viewport: { width: 800, height: 900 } });

@@ -1,7 +1,7 @@
 // Velocity Rush — neon endless lane racer for CrazyGames
 import { initSDK, gameplayStart, gameplayStop, loadingStart, loadingStop, happytime, requestAd, getMuteSetting, onSettingsChange, loadBest, saveBest } from './sdk.js';
 import * as audio from './audio.js';
-import { CARS, UPGRADES, M, loadMeta, saveMeta, getCar, nitroDuration, magnetRadius, hasShield, buyCar, selectCar, buyUpgrade, activeMissions, commitRun, addWallet, claimDaily } from './meta.js';
+import { CARS, UPGRADES, M, loadMeta, saveMeta, getCar, nitroDuration, magnetRadius, hasShield, buyCar, selectCar, buyUpgrade, activeMissions, commitRun, addWallet, claimDaily, markControlHintSeen } from './meta.js';
 import { FIXED_STEP, consumeFixedSteps } from './sim.js';
 import { chooseTrafficSpawn, isMarkedNearMiss, trafficCarWidth } from './traffic.js';
 import { speedometerGauge } from './feedback.js';
@@ -60,7 +60,8 @@ let debug = new URLSearchParams(location.search).has('debug');
 const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 let userMuted = false;
 let dailyBonus = 0;      // shown on menu once per day
-let firstRun = true;     // contextual hint on first run
+let firstRun = true;     // contextual nitro callout on a first run
+let onboardingVisible = false;
 let garageIdx = 0;       // car carousel index
 let runResult = null;    // { earned, missions, doubled }
 
@@ -1190,6 +1191,15 @@ function drawGame() {
     ctx.fillStyle = gR; ctx.fillRect(W - 100, 0, 100, H);
     ctx.restore();
   }
+  // Nitro has a distinct cyan edge vignette in addition to the speed lines:
+  // this keeps the boost readable in a single still frame as well as in motion.
+  if (G.nitroT > 0 && state === 'playing' && !reducedMotion) {
+    const nitroVignette = ctx.createRadialGradient(W / 2, H * 0.56, H * 0.18, W / 2, H * 0.56, Math.max(W, H) * 0.72);
+    nitroVignette.addColorStop(0, 'rgba(0,229,255,0)');
+    nitroVignette.addColorStop(0.68, 'rgba(0,229,255,0.02)');
+    nitroVignette.addColorStop(1, 'rgba(0,229,255,0.24)');
+    ctx.fillStyle = nitroVignette; ctx.fillRect(-40, -40, W + 80, H + 80);
+  }
   // subtle vignette
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.42, W / 2, H / 2, H * 0.78);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.34)');
@@ -1201,17 +1211,10 @@ function drawGame() {
     ctx.fillRect(-40, -40, W + 80, H + 80);
   }
 
-  // contextual first-run hint
-  if (state === 'playing' && firstRun && G.time < 6) {
-    const a = G.time < 5 ? 1 : 6 - G.time;
-    ctx.globalAlpha = a * (0.6 + 0.4 * Math.sin(G.time * 6));
-    ctx.fillStyle = '#fff';
-    ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 12;
-    ctx.font = '900 30px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('\u2190  TAP / SWIPE / ARROWS  \u2192', W / 2, H * 0.58);
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
-  }
+  // First-run onboarding is intentionally visual-first and only lasts until
+  // a successful lane change. The labels name physical key clusters, not
+  // locale-dependent characters, so AZERTY players see the same controls.
+  if (state === 'playing' && onboardingVisible) drawControlOnboarding();
 
   ctx.restore();
 }
@@ -1366,6 +1369,30 @@ function drawHUD() {
   }
 }
 
+function drawControlOnboarding() {
+  const compact = W < 540;
+  const x = W / 2, y = H * (compact ? 0.57 : 0.59);
+  const keyW = compact ? 42 : 52, keyH = compact ? 34 : 42, gap = compact ? 5 : 7;
+  const topY = y - keyH - gap / 2 - 12, bottomY = y + gap / 2 - 12;
+  const drawKey = (kx, ky, label) => {
+    ctx.fillStyle = 'rgba(7,13,33,0.9)'; ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2;
+    ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 10;
+    roundRect(kx - keyW / 2, ky - keyH / 2, keyW, keyH, 7); ctx.fill(); ctx.stroke();
+    ctx.shadowBlur = 0; ctx.fillStyle = '#f3fdff'; ctx.font = '900 ' + (compact ? 14 : 17) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(label, kx, ky + 1);
+  };
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,7,21,0.72)'; ctx.strokeStyle = 'rgba(0,229,255,0.5)'; ctx.lineWidth = 2;
+  const panelW = compact ? 246 : 290, panelH = compact ? 144 : 164;
+  roundRect(x - panelW / 2, y - panelH / 2, panelW, panelH, 14); ctx.fill(); ctx.stroke();
+  drawKey(x, topY, 'W / Z'); drawKey(x - keyW - gap, bottomY, 'A / Q'); drawKey(x, bottomY, 'S'); drawKey(x + keyW + gap, bottomY, 'D');
+  ctx.fillStyle = '#b7f8ff'; ctx.font = '900 ' + (compact ? 12 : 14) + 'px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('WASD / ZQSD  ·  ARROWS', x, y + (compact ? 31 : 36));
+  ctx.fillStyle = 'rgba(255,255,255,0.76)'; ctx.font = 'bold ' + (compact ? 11 : 13) + 'px sans-serif';
+  ctx.fillText('SWIPE OR TAP TO STEER', x, y + (compact ? 50 : 56));
+  ctx.restore();
+}
+
 // buttons (canvas-space rects)
 let buttons = [];
 function drawButton(id, x, y, w, h, label, color, sub) {
@@ -1440,6 +1467,7 @@ function drawTitle(yc, compact = false) {
 function drawMenu() {
   const compact = isDesktop && H < 620;
   drawGame();
+  drawMenuHeadlightSweep();
   ctx.fillStyle = 'rgba(4,6,16,0.55)';
   ctx.fillRect(0, 0, W, H);
   drawTitle(H * (compact ? 0.16 : 0.2), compact);
@@ -1471,12 +1499,28 @@ function drawMenu() {
   }
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.font = '17px sans-serif';
-  ctx.fillText('\u2190 \u2192 / A D — change lane  ·  swipe on mobile', W / 2, H * (compact ? 0.86 : 0.73));
+  ctx.fillText('\u2190 \u2192 / WASD / ZQSD — steer  ·  swipe on mobile', W / 2, H * (compact ? 0.86 : 0.73));
   ctx.fillText('Grab $ coins & NITRO, thread the gaps!', W / 2, H * (compact ? 0.91 : 0.765));
   if (best > 0) {
     ctx.fillStyle = '#ffd700'; ctx.font = 'bold 22px sans-serif';
     ctx.fillText('BEST: ' + best + ' m', W / 2, H * 0.82);
   }
+}
+
+function drawMenuHeadlightSweep() {
+  const phase = (G.time * 0.16) % 1;
+  const sweepX = -W * 0.2 + phase * W * 1.4;
+  ctx.save();
+  ctx.globalCompositeOperation = 'screen';
+  const beam = ctx.createLinearGradient(sweepX - W * 0.22, 0, sweepX + W * 0.22, 0);
+  beam.addColorStop(0, 'rgba(0,229,255,0)');
+  beam.addColorStop(0.46, 'rgba(110,245,255,0.02)');
+  beam.addColorStop(0.5, 'rgba(232,255,255,0.20)');
+  beam.addColorStop(0.54, 'rgba(110,245,255,0.02)');
+  beam.addColorStop(1, 'rgba(0,229,255,0)');
+  ctx.fillStyle = beam;
+  ctx.beginPath(); ctx.moveTo(sweepX - W * 0.22, H); ctx.lineTo(sweepX + W * 0.04, 0); ctx.lineTo(sweepX + W * 0.22, 0); ctx.lineTo(sweepX, H); ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 // ---------- garage ----------
@@ -1882,9 +1926,14 @@ function frame(now) {
 
 // ---------- input ----------
 function moveLane(dir) {
-  if (state !== 'playing' || G.crashing) return;
+  if (state !== 'playing' || G.crashing) return false;
   const nl = Math.max(0, Math.min(LANES - 1, G.lane + dir));
-  if (nl !== G.lane) { G.lane = nl; audio.skidSound(); }
+  if (nl !== G.lane) {
+    G.lane = nl; audio.skidSound();
+    if (onboardingVisible) { onboardingVisible = false; markControlHintSeen(); }
+    return true;
+  }
+  return false;
 }
 
 function garageAction(id) {
@@ -1909,17 +1958,22 @@ function garagePrimaryAction() {
 
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  const code = e.code;
   if (state === 'garage') {
-    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') garageAction('prevCar');
-    else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') garageAction('nextCar');
-    else if (e.key === ' ' || e.key === 'Enter') garagePrimaryAction();
-    else if (e.key === 'Escape') state = 'menu';
+    if (code === 'ArrowLeft' || code === 'KeyA' || code === 'KeyW') garageAction('prevCar');
+    else if (code === 'ArrowRight' || code === 'KeyD' || code === 'KeyS') garageAction('nextCar');
+    else if (code === 'Space' || code === 'Enter') garagePrimaryAction();
+    else if (code === 'Escape' || code === 'Backspace' || code === 'KeyG') state = 'menu';
+    else return;
+    e.preventDefault();
     return;
   }
-  if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') moveLane(-1);
-  else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') moveLane(1);
-  else if ((e.key === ' ' || e.key === 'Enter') && state === 'menu') startGame();
-  else if ((e.key === ' ' || e.key === 'Enter') && state === 'gameover') playAgain();
+  if (code === 'ArrowLeft' || code === 'KeyA' || code === 'KeyW') moveLane(-1);
+  else if (code === 'ArrowRight' || code === 'KeyD' || code === 'KeyS') moveLane(1);
+  else if ((code === 'Space' || code === 'Enter') && state === 'menu') startGame();
+  else if ((code === 'Space' || code === 'Enter') && state === 'gameover') playAgain();
+  else return;
+  e.preventDefault();
 });
 
 function canvasPos(ev) {
@@ -1979,6 +2033,7 @@ async function boot() {
   best = loadBest();
   loadMeta();
   firstRun = M.stats.runs === 0;
+  onboardingVisible = !M.controlHintSeen;
   dailyBonus = claimDaily();
   mutedBySettings = getMuteSetting();
   applyMute();
